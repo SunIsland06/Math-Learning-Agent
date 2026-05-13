@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI问答</title>
+    <style>
+        #chat-box{width:600px;height:400px;border:1px solid #ccc;padding:10px;overflow-y:auto;}
+        .item{margin:8px 0;}
+        .user{color:blue;}
+        .ai{color:green;}
+        .logout-btn{float:right;padding:6px 12px;background:#f44336;color:white;border:none;border-radius:4px;text-decoration:none;}
+    </style>
+</head>
+<body>
+    <div style="width:600px;">
+        <h3>欢迎 {{ username }}</h3>
+        <a href="/logout" class="logout-btn">退出登录</a>
+    </div>
+
+    <div id="chat-box"></div>
+    <br>
+    <input type="text" id="question" placeholder="输入问题" style="width:500px;padding:8px;">
+    <button onclick="sendQuestion()">发送</button>
+
+    <script>
+        window.onload = function(){
+            let history = {{ history|tojson }};
+            let box = document.getElementById("chat-box");
+            history.forEach(item=>{
+                box.innerHTML += `<div class="item user">你：${item.question}</div>`;
+                box.innerHTML += `<div class="item ai">AI：${item.answer}</div>`;
+            });
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function sendQuestion(){
+            let q = document.getElementById("question").value;
+            if(!q)return;
+            let box = document.getElementById("chat-box");
+            box.innerHTML += `<div class="item user">你：${q}</div>`;
+            document.getElementById("question").value = "";
+
+            fetch("/ask",{
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({question:q})
+            })
+            .then(res=>res.json())
+            .then(data=>{
+                box.innerHTML += `<div class="item ai">AI：${data.answer}</div>`;
+                box.scrollTop = box.scrollHeight;
+            })
+        }
+    </script>
+</body>
+</html>
