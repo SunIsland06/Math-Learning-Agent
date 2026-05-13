@@ -1,0 +1,10 @@
+# 模型api接口
+APIUrl: https://api.deepseek.com/chat/completions
+# API Key
+key: sk-36eb5c50194b4c549ada1bb64a1effe7
+# 选择的模型
+model: deepseek-v4-pro
+#是否开启搜索功能(默认关闭)
+search: false
+# 是否开启长期记忆(默认关闭)
+memory: false
