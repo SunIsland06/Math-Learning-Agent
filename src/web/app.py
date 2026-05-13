@@ -8,7 +8,7 @@ app.secret_key = "123456789"
 
 # =====================数据库表=========================
 # MySQL数据库 只需改自己的MySQL密码》》你的MySQL密码
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:你的MySQL密码@127.0.0.1:3306/flask_chat?charset=utf8mb4'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 绑定数据库
@@ -48,6 +48,7 @@ def get_ai_answer(question):
         return res.json()["result"]
     except Exception as e:
         return f"大模型请求异常：{str(e)}"
+    
 # ==================== 注册路由 ====================
 @app.route('/register', methods=['GET','POST'])
 def register():
