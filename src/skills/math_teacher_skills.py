@@ -18,6 +18,7 @@ class MathTeacherSkills:
         return "【拆解提问】我们把题目拆成小问题，一个一个解决。"
     def skill_ask_analogy(self, question):
         return "【类比提问】用生活例子帮你理解这个知识点。"
+    
 class MathTeacherSkills:
     def __init__(self):
         pass
