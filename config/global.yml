@@ -4,7 +4,13 @@ APIUrl: https://api.deepseek.com/chat/completions
 key: 
 # 选择的模型
 model: deepseek-v4-pro
+# 是否开启思考过程
+thinking: enabled
+# 思考强度(high, max)
+thinking_strength: high
 #是否开启搜索功能(默认关闭)
 search: false
 # 是否开启长期记忆(默认关闭)
 memory: false
+# 是否开启流式输出(默认关闭)
+stream: false
