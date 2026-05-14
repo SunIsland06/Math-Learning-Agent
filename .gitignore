@@ -1,4 +1,11 @@
+# 忽略.vscode文件夹中的所有内容
 .vscode/**
 
-/test/**
-/config/myglobal.yml
+# 忽略test文件夹中的所有内容
+test/**
+
+# 忽略config文件夹中的myglobal.yml文件
+config/myglobal.yml
+
+# 忽略所有的_pycache_文件夹
+src/*/__pycache__/**

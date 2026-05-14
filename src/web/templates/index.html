@@ -4,52 +4,315 @@
     <meta charset="UTF-8">
     <title>AI问答</title>
     <style>
-        #chat-box{width:600px;height:400px;border:1px solid #ccc;padding:10px;overflow-y:auto;}
-        .item{margin:8px 0;}
-        .user{color:blue;}
-        .ai{color:green;}
-        .logout-btn{float:right;padding:6px 12px;background:#f44336;color:white;border:none;border-radius:4px;text-decoration:none;}
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; }
+        .layout { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+        .sidebar { border-right: 1px solid #ddd; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+        .sidebar-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .logout-btn { padding: 6px 10px; background: #f44336; color: #fff; border: none; border-radius: 4px; text-decoration: none; }
+        .new-btn { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; cursor: pointer; }
+        #session-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+        .session-row { display: grid; grid-template-columns: 1fr 34px; gap: 6px; }
+        .session-item { width: 100%; text-align: left; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
+        .session-item.active { border-color: #2f80ed; background: #eef5ff; }
+        .delete-btn { width: 34px; height: 34px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #d32f2f; cursor: pointer; font-weight: bold; }
+        .delete-btn:hover { background: #ffecec; }
+        .empty { color: #777; font-size: 13px; padding: 6px 2px; }
+
+        .chat-panel { display: grid; grid-template-rows: 1fr auto; min-width: 0; }
+        #chat-box { padding: 16px; overflow-y: auto; }
+        .item { margin: 10px 0; white-space: pre-wrap; line-height: 1.5; }
+        .user { color: #1557b0; }
+        .ai { color: #16733b; }
+        .composer { border-top: 1px solid #ddd; padding: 12px; display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+        #question { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        #send-btn { padding: 10px; border: none; border-radius: 4px; background: #2f80ed; color: #fff; cursor: pointer; }
+        #send-btn:disabled { background: #9fbce8; cursor: not-allowed; }
     </style>
 </head>
 <body>
-    <div style="width:600px;">
-        <h3>欢迎 {{ username }}</h3>
-        <a href="/logout" class="logout-btn">退出登录</a>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-top">
+                <strong>欢迎 {{ username }}</strong>
+                <a href="/logout" class="logout-btn">退出</a>
+            </div>
+            <button class="new-btn" onclick="createSession()">+ 新建会话</button>
+            <div id="session-list"></div>
+        </aside>
+
+        <main class="chat-panel">
+            <div id="chat-box"></div>
+            <div class="composer">
+                <input type="text" id="question" placeholder="输入问题，回车发送">
+                <button id="send-btn" onclick="sendQuestion()">发送</button>
+            </div>
+        </main>
     </div>
 
-    <div id="chat-box"></div>
-    <br>
-    <input type="text" id="question" placeholder="输入问题" style="width:500px;padding:8px;">
-    <button onclick="sendQuestion()">发送</button>
-
     <script>
-        window.onload = function(){
-            let history = {{ history|tojson }};
-            let box = document.getElementById("chat-box");
-            history.forEach(item=>{
-                box.innerHTML += `<div class="item user">你：${item.question}</div>`;
-                box.innerHTML += `<div class="item ai">AI：${item.answer}</div>`;
+        let currentSessionId = null;
+        let sending = false;
+
+        const box = document.getElementById("chat-box");
+        const questionInput = document.getElementById("question");
+        const sendBtn = document.getElementById("send-btn");
+        const sessionListEl = document.getElementById("session-list");
+
+        questionInput.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendQuestion();
+            }
+        });
+
+        window.onload = async function () {
+            await refreshSessions();
+            if (currentSessionId) {
+                await loadSessionMessages(currentSessionId);
+            } else {
+                renderEmptyChat();
+            }
+        };
+
+        function normalizeSessionId(value) {
+            if (value === null || value === undefined || value === "") {
+                return null;
+            }
+            return String(value);
+        }
+
+        function setSendingState(value) {
+            sending = value;
+            sendBtn.disabled = value;
+            questionInput.disabled = value;
+        }
+
+        function appendMessage(role, content) {
+            const div = document.createElement("div");
+            div.className = "item " + (role === "user" ? "user" : "ai");
+            div.textContent = (role === "user" ? "你：" : "AI：") + (content || "");
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+            return div;
+        }
+
+        function renderMessages(messages) {
+            box.innerHTML = "";
+            messages.forEach((m) => {
+                if (m.role === "user" || m.role === "assistant") {
+                    appendMessage(m.role, m.content || "");
+                }
             });
             box.scrollTop = box.scrollHeight;
         }
 
-        function sendQuestion(){
-            let q = document.getElementById("question").value;
-            if(!q)return;
-            let box = document.getElementById("chat-box");
-            box.innerHTML += `<div class="item user">你：${q}</div>`;
-            document.getElementById("question").value = "";
+        function renderEmptyChat() {
+            box.innerHTML = "";
+            const div = document.createElement("div");
+            div.className = "empty";
+            div.textContent = "暂无消息，开始提问吧。";
+            box.appendChild(div);
+        }
 
-            fetch("/ask",{
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({question:q})
-            })
-            .then(res=>res.json())
-            .then(data=>{
-                box.innerHTML += `<div class="item ai">AI：${data.answer}</div>`;
-                box.scrollTop = box.scrollHeight;
-            })
+        function renderSessionList(sessions) {
+            sessionListEl.innerHTML = "";
+            if (!sessions.length) {
+                const div = document.createElement("div");
+                div.className = "empty";
+                div.textContent = "暂无会话";
+                sessionListEl.appendChild(div);
+                return;
+            }
+
+            sessions.forEach((s) => {
+                const sid = normalizeSessionId(s.session_id);
+                const row = document.createElement("div");
+                row.className = "session-row";
+
+                const btn = document.createElement("button");
+                btn.className = "session-item" + (sid === currentSessionId ? " active" : "");
+                btn.textContent = s.title || "new";
+                btn.onclick = async function () {
+                    if (sending || sid === currentSessionId) return;
+                    currentSessionId = sid;
+                    renderSessionList(sessions);
+                    await loadSessionMessages(sid);
+                };
+
+                const delBtn = document.createElement("button");
+                delBtn.className = "delete-btn";
+                delBtn.type = "button";
+                delBtn.title = "删除会话";
+                delBtn.textContent = "×";
+                delBtn.onclick = async function (e) {
+                    e.stopPropagation();
+                    if (sending) return;
+                    if (!confirm("确认删除该会话及其所有消息吗？")) return;
+                    await deleteSession(sid);
+                };
+
+                row.appendChild(btn);
+                row.appendChild(delBtn);
+                sessionListEl.appendChild(row);
+            });
+        }
+
+        async function parseError(res) {
+            const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
+            if (contentType.includes("application/json")) {
+                try {
+                    const data = await res.json();
+                    return data.error || JSON.stringify(data);
+                } catch (e) {
+                    return "unknown_error";
+                }
+            }
+            try {
+                return await res.text();
+            } catch (e) {
+                return "unknown_error";
+            }
+        }
+
+        async function refreshSessions(preferredSessionId = null) {
+            const res = await fetch("/session/list");
+            if (!res.ok) {
+                if (res.status === 401) {
+                    location.href = "/login";
+                    return;
+                }
+                throw new Error(await parseError(res));
+            }
+
+            const sessions = await res.json();
+            const preferred = normalizeSessionId(preferredSessionId);
+            const current = normalizeSessionId(currentSessionId);
+
+            if (preferred && sessions.some((s) => normalizeSessionId(s.session_id) === preferred)) {
+                currentSessionId = preferred;
+            } else if (current && sessions.some((s) => normalizeSessionId(s.session_id) === current)) {
+                currentSessionId = current;
+            } else {
+                currentSessionId = sessions.length ? normalizeSessionId(sessions[0].session_id) : null;
+            }
+
+            renderSessionList(sessions);
+        }
+
+        async function createSession() {
+            if (sending) return;
+            const res = await fetch("/session/new", { method: "POST" });
+            if (!res.ok) {
+                alert("新建会话失败：" + await parseError(res));
+                return;
+            }
+            const data = await res.json();
+            currentSessionId = normalizeSessionId(data.session_id);
+            await refreshSessions(currentSessionId);
+            renderMessages([]);
+        }
+
+        async function deleteSession(sessionId) {
+            const sid = normalizeSessionId(sessionId);
+            if (!sid) return;
+
+            const deletingCurrent = sid === currentSessionId;
+            const res = await fetch("/session/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sid }),
+            });
+            if (!res.ok) {
+                alert("删除会话失败：" + await parseError(res));
+                return;
+            }
+
+            await refreshSessions(deletingCurrent ? null : currentSessionId);
+            if (currentSessionId) {
+                await loadSessionMessages(currentSessionId);
+            } else {
+                renderEmptyChat();
+            }
+        }
+
+        async function loadSessionMessages(sessionId) {
+            const sid = normalizeSessionId(sessionId);
+            if (!sid) {
+                renderEmptyChat();
+                return;
+            }
+
+            const res = await fetch("/session/messages?session_id=" + encodeURIComponent(sid));
+            if (!res.ok) {
+                const err = await parseError(res);
+                if (res.status === 404) {
+                    await refreshSessions();
+                    renderEmptyChat();
+                    return;
+                }
+                alert("加载会话失败：" + err);
+                return;
+            }
+
+            const data = await res.json();
+            renderMessages(data.messages || []);
+        }
+
+        async function sendQuestion() {
+            if (sending) return;
+            const q = questionInput.value.trim();
+            if (!q) return;
+
+            if (!currentSessionId) {
+                await createSession();
+            }
+
+            appendMessage("user", q);
+            const aiDiv = appendMessage("assistant", "");
+            questionInput.value = "";
+            setSendingState(true);
+
+            try {
+                const res = await fetch("/ask", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ question: q, session_id: currentSessionId }),
+                });
+
+                if (!res.ok) {
+                    aiDiv.textContent = "AI：" + (await parseError(res));
+                    return;
+                }
+
+                const headerSessionId = normalizeSessionId(res.headers.get("X-Session-Id"));
+                if (headerSessionId) {
+                    currentSessionId = headerSessionId;
+                }
+
+                if (!res.body) {
+                    aiDiv.textContent = "AI：" + (await res.text());
+                } else {
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let answer = "";
+                    while (true) {
+                        const result = await reader.read();
+                        if (result.done) break;
+                        answer += decoder.decode(result.value, { stream: true });
+                        aiDiv.textContent = "AI：" + answer;
+                        box.scrollTop = box.scrollHeight;
+                    }
+                    answer += decoder.decode();
+                    aiDiv.textContent = "AI：" + answer;
+                }
+
+                await refreshSessions(currentSessionId);
+            } catch (e) {
+                aiDiv.textContent = "AI：请求失败，" + e.message;
+            } finally {
+                setSendingState(false);
+            }
         }
     </script>
 </body>

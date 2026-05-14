@@ -1,117 +1,285 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
-from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
 import hashlib
-import requests
+import sys
+from pathlib import Path
+
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    stream_with_context,
+    url_for,
+)
+from flask_sqlalchemy import SQLAlchemy
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from model.model import Model
 
 app = Flask(__name__)
 app.secret_key = "123456789"
 
-# =====================数据库表=========================
-# MySQL数据库 只需改自己的MySQL密码》》你的MySQL密码
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    "mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# 绑定数据库
 db = SQLAlchemy(app)
 
-# 用户表
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
 
-# 聊天记录表
+
 class ChatRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), nullable=False)
     question = db.Column(db.Text, nullable=False)
     answer = db.Column(db.Text, nullable=False)
 
-# ====================SHA256加密工具函数 ====================
+
+class ChatSession(db.Model):
+    __tablename__ = "chat_session"
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(50), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class ChatMessage(db.Model):
+    __tablename__ = "chat_message"
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    session_id = db.Column(db.BigInteger, nullable=False, index=True)
+    role = db.Column(db.Enum("system", "user", "assistant"), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    seq = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
 def sha256_encrypt(pwd):
     return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
 
-# ====================大模型接口函数====================
-#在线大模型API 只修改地址和密钥和名称》》你的大模型接口地址 你的密钥 模型名称
-def get_ai_answer(question):
-    url = "你的大模型接口地址"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer 你的密钥"
-    }
-    payload = {
-        "prompt": question,
-        "model": "模型名称"
-    }
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=30)
-        return res.json()["result"]
-    except Exception as e:
-        return f"大模型请求异常：{str(e)}"
-    
-# ==================== 注册路由 ====================
-@app.route('/register', methods=['GET','POST'])
+
+def generate_title(question: str) -> str:
+    text = (question or "").strip()
+    if not text:
+        return f"new-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+    return text[:15]
+
+
+def get_ai_answer_with_messages_stream(messages, question):
+    model = Model()
+    model.messages = model.messages[:1] + messages
+    yield from model.stream_chat_chunks(question)
+
+
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        pwd = request.form.get('pwd')
-        # 判断账号是否存在
+    if request.method == "POST":
+        username = request.form.get("username")
+        pwd = request.form.get("pwd")
         if User.query.filter_by(username=username).first():
             return "账号已存在！<a href='/register'>返回注册</a>"
         encrypt_pwd = sha256_encrypt(pwd)
-        # 存入MySQL
-        new_user = User(username=username, password=encrypt_pwd)
-        db.session.add(new_user)
+        db.session.add(User(username=username, password=encrypt_pwd))
         db.session.commit()
-        return redirect(url_for('login'))
-    return render_template('register.html')
+        return redirect(url_for("login"))
+    return render_template("register.html")
 
-# ==================== 登录路由 ====================
-@app.route('/login', methods=['GET','POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        pwd = request.form.get('pwd')
+    if request.method == "POST":
+        username = request.form.get("username")
+        pwd = request.form.get("pwd")
         user = User.query.filter_by(username=username).first()
         if not user:
             return "账号或密码错误！<a href='/login'>重新登录</a>"
         if sha256_encrypt(pwd) == user.password:
-            session['username'] = username
-            return redirect(url_for('index'))
+            session["username"] = username
+            return redirect(url_for("index"))
         return "账号或密码错误！<a href='/login'>重新登录</a>"
-    return render_template('login.html')
+    return render_template("login.html")
 
-# ==================== 退出登录 ====================
-@app.route('/logout')
+
+@app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for('login'))
+    return redirect(url_for("login"))
 
-# ==================== 问答主页 ====================
-@app.route('/')
+
+@app.route("/")
 def index():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    history = ChatRecord.query.filter_by(username=session['username']).all()
-    return render_template('index.html', username=session['username'], history=history)
+    if "username" not in session:
+        return redirect(url_for("login"))
+    history = ChatRecord.query.filter_by(username=session["username"]).all()
+    return render_template("index.html", username=session["username"], history=history)
 
-# ====================  问答接口 ====================
-@app.route('/ask', methods=['POST'])
-def ask():
-    data = request.get_json()
-    question = data.get('question','')
-    # 调用大模型
-    answer = get_ai_answer(question)
-    username = session.get('username','')
-    # 聊天记录存入MySQL
-    new_record = ChatRecord(username=username, question=question, answer=answer)
-    db.session.add(new_record)
+
+@app.route("/session/new", methods=["POST"])
+def session_new():
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+    new_session = ChatSession(username=username, title="new")
+    db.session.add(new_session)
     db.session.commit()
-    return jsonify({"answer": answer})
+    return jsonify({"session_id": new_session.id})
 
-# 程序启动自动创建数据表
+
+@app.route("/session/list", methods=["GET"])
+def session_list():
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+    rows = (
+        ChatSession.query.filter_by(username=username)
+        .order_by(ChatSession.updated_at.desc())
+        .all()
+    )
+    return jsonify([{"session_id": row.id, "title": row.title} for row in rows])
+
+
+@app.route("/session/messages", methods=["GET"])
+def session_messages():
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+
+    session_id = request.args.get("session_id")
+    if not session_id:
+        return jsonify({"error": "session_id_required"}), 400
+
+    row = ChatSession.query.filter_by(id=session_id, username=username).first()
+    if not row:
+        return jsonify({"error": "session_not_found"}), 404
+
+    messages = (
+        ChatMessage.query.filter_by(session_id=row.id)
+        .order_by(ChatMessage.seq.asc())
+        .all()
+    )
+    return jsonify(
+        {
+            "session_id": row.id,
+            "title": row.title,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+        }
+    )
+
+
+@app.route("/session/title", methods=["POST"])
+def session_title():
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    title = (data.get("title") or "").strip()[:15]
+    row = ChatSession.query.filter_by(
+        id=session_id, username=session.get("username", "")
+    ).first()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+    row.title = title or row.title
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/session/delete", methods=["POST"])
+def session_delete():
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+
+    row = ChatSession.query.filter_by(id=session_id, username=username).first()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+
+    # Fully delete this session and all messages under it.
+    ChatMessage.query.filter_by(session_id=row.id).delete()
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    data = request.get_json() or {}
+    question = data.get("question", "")
+    session_id = data.get("session_id")
+
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+
+    if session_id:
+        chat_session = ChatSession.query.filter_by(
+            id=session_id, username=username
+        ).first()
+        if not chat_session:
+            return jsonify({"error": "session_not_found"}), 404
+    else:
+        chat_session = ChatSession(username=username, title=generate_title(question))
+        db.session.add(chat_session)
+        db.session.flush()
+        session_id = chat_session.id
+
+    history = (
+        ChatMessage.query.filter_by(session_id=session_id)
+        .order_by(ChatMessage.seq.asc())
+        .all()
+    )
+    messages = [{"role": m.role, "content": m.content} for m in history]
+
+    if not any(m.role == "user" for m in history):
+        chat_session.title = generate_title(question)
+
+    next_seq = (history[-1].seq + 1) if history else 1
+    db.session.add(
+        ChatMessage(session_id=session_id, role="user", content=question, seq=next_seq)
+    )
+
+    @stream_with_context
+    def generate():
+        answer_chunks = []
+        try:
+            for chunk in get_ai_answer_with_messages_stream(messages, question):
+                answer_chunks.append(chunk)
+                yield chunk
+
+            answer = "".join(answer_chunks)
+            db.session.add(
+                ChatMessage(
+                    session_id=session_id,
+                    role="assistant",
+                    content=answer,
+                    seq=next_seq + 1,
+                )
+            )
+            chat_session.updated_at = datetime.utcnow()
+            db.session.commit()
+        except BaseException:
+            db.session.rollback()
+            raise
+
+    response = Response(generate(), mimetype="text/plain; charset=utf-8")
+    response.headers["X-Session-Id"] = str(session_id)
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
+
+
 with app.app_context():
     db.create_all()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run(debug=True)
