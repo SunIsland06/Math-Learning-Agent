@@ -12,5 +12,3 @@ thinking_strength: high
 search: false
 # 是否开启长期记忆(默认关闭)
 memory: false
-# 是否开启流式输出(默认关闭)
-stream: false
