@@ -4,43 +4,258 @@
     <meta charset="UTF-8">
     <title>AI问答</title>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; }
-        .layout { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
-        .sidebar { border-right: 1px solid #ddd; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-        .sidebar-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .logout-btn { padding: 6px 10px; background: #f44336; color: #fff; border: none; border-radius: 4px; text-decoration: none; }
-        .new-btn { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; cursor: pointer; }
-        #session-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-        .session-row { display: grid; grid-template-columns: 1fr 34px; gap: 6px; }
-        .session-item { width: 100%; text-align: left; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
-        .session-item.active { border-color: #2f80ed; background: #eef5ff; }
-        .delete-btn { width: 34px; height: 34px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #d32f2f; cursor: pointer; font-weight: bold; }
-        .delete-btn:hover { background: #ffecec; }
-        .empty { color: #777; font-size: 13px; padding: 6px 2px; }
+        * {
+            box-sizing: border-box;
+        }
 
-        .chat-panel { display: grid; grid-template-rows: 1fr auto; min-width: 0; }
-        #chat-box { padding: 16px; overflow-y: auto; }
-        .item { margin: 10px 0; white-space: pre-wrap; line-height: 1.5; }
-        .user { color: #1557b0; }
-        .ai { color: #16733b; }
-        .composer { border-top: 1px solid #ddd; padding: 12px; display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
-        #question { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        #send-btn { padding: 10px; border: none; border-radius: 4px; background: #2f80ed; color: #fff; cursor: pointer; }
-        #send-btn:disabled { background: #9fbce8; cursor: not-allowed; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh; /* 1. 占满全屏高度 */
+            overflow: hidden; /* 2. 隐藏页面级滚动条，由内部模块自行处理 */
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: 100vh;
+            border: 1px solid #ddd;
+            overflow: hidden; /* 确保布局容器不产生滚动 */
+        }
+
+        /* 侧边栏优化：使用 Flex 布局来分配空间 */
+        .sidebar {
+            border-right: 1px solid #ddd;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%; /* 占满父容器高度 */
+            overflow: hidden; /* 关键：隐藏侧边栏自身的溢出，让内部列表去滚动 */
+        }
+
+        .sidebar-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0; /* 防止顶部区域被压缩 */
+        }
+
+        .logout-btn {
+            padding: 6px 10px;
+            background: #f44336;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+
+        .new-btn {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+
+        /* 设置区域优化：改为单行紧凑布局 */
+        .settings-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 8px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #eee;
+            font-size: 12px;
+        }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .control-label {
+            font-size: 10px;
+            color: #555;
+        }
+
+        select {
+            padding: 2px;
+            font-size: 10px;
+        }
+
+        /* --- 核心改动：让会话列表自动填充并独立滚动 --- */
+        #session-list {
+            overflow-y: auto; /* 允许滚动 */
+            min-height: 0; /* 配合 flex，允许缩小 */
+            flex: 1; /* 占据侧边栏剩余的所有空间 */
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        /* 优化滚动条（可选，美化视觉） */
+        #session-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        #session-list::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+
+        .session-row {
+            display: grid;
+            grid-template-columns: 1fr 34px;
+            gap: 6px;
+        }
+
+        .session-item {
+            width: 100%;
+            text-align: left;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .session-item.active {
+            border-color: #2f80ed;
+            background: #eef5ff;
+        }
+
+        .delete-btn {
+            width: 34px;
+            height: 34px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            color: #d32f2f;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .delete-btn:hover {
+            background: #ffecec;
+        }
+
+        .empty {
+            color: #777;
+            font-size: 13px;
+            padding: 6px 2px;
+            text-align: center;
+        }
+
+        /* 聊天主面板优化 */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            height: 100%;
+        }
+
+        #chat-box {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1; /* 占据主面板剩余空间 */
+            background-color: #fafafa;
+        }
+
+        .item {
+            margin: 10px 0;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .user {
+            color: #1557b0;
+            background-color: #e3f2fd;
+            align-self: flex-start;
+            max-width: 80%;
+        }
+
+        .ai {
+            color: #16733b;
+            background-color: #f0f8f0;
+            align-self: flex-start;
+            max-width: 80%;
+        }
+
+        .composer {
+            border-top: 1px solid #ddd;
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 90px;
+            gap: 8px;
+            background-color: #fff;
+        }
+
+        #question {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #send-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            background: #2f80ed;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        #send-btn:disabled {
+            background: #9fbce8;
+            cursor: not-allowed;
+        }
     </style>
 </head>
+
 <body>
     <div class="layout">
+        <!-- 侧边栏：包裹设置和会话列表 -->
         <aside class="sidebar">
             <div class="sidebar-top">
                 <strong>欢迎 {{ username }}</strong>
                 <a href="/logout" class="logout-btn">退出</a>
             </div>
+
             <button class="new-btn" onclick="createSession()">+ 新建会话</button>
+
+            <!-- 紧凑型设置区域 -->
+            <div class="settings-panel">
+                <div class="control-item">
+                    <label><input type="checkbox" id="enable-thinking"> 深度思考</label>
+                    <select id="thinking-strength">
+                        <option value="high" selected>高</option>
+                        <option value="max">极高</option>
+                    </select>
+                </div>
+                <div class="control-item">
+                    <label><input type="checkbox" id="enable-search"> 联网搜索</label>
+                </div>
+                <div class="control-item">
+                    <label><input type="checkbox" id="enable-memory"> 记忆模式</label>
+                </div>
+            </div>
+
+            <!-- 会话列表：现在会自动填充剩余空间并独立滚动 -->
             <div id="session-list"></div>
         </aside>
 
+        <!-- 主聊天区 -->
         <main class="chat-panel">
             <div id="chat-box"></div>
             <div class="composer">
@@ -51,9 +266,9 @@
     </div>
 
     <script>
+        // 保持原有 JavaScript 逻辑不变
         let currentSessionId = null;
         let sending = false;
-
         const box = document.getElementById("chat-box");
         const questionInput = document.getElementById("question");
         const sendBtn = document.getElementById("send-btn");
@@ -124,12 +339,10 @@
                 sessionListEl.appendChild(div);
                 return;
             }
-
             sessions.forEach((s) => {
                 const sid = normalizeSessionId(s.session_id);
                 const row = document.createElement("div");
                 row.className = "session-row";
-
                 const btn = document.createElement("button");
                 btn.className = "session-item" + (sid === currentSessionId ? " active" : "");
                 btn.textContent = s.title || "new";
@@ -139,7 +352,6 @@
                     renderSessionList(sessions);
                     await loadSessionMessages(sid);
                 };
-
                 const delBtn = document.createElement("button");
                 delBtn.className = "delete-btn";
                 delBtn.type = "button";
@@ -151,7 +363,6 @@
                     if (!confirm("确认删除该会话及其所有消息吗？")) return;
                     await deleteSession(sid);
                 };
-
                 row.appendChild(btn);
                 row.appendChild(delBtn);
                 sessionListEl.appendChild(row);
@@ -184,11 +395,9 @@
                 }
                 throw new Error(await parseError(res));
             }
-
             const sessions = await res.json();
             const preferred = normalizeSessionId(preferredSessionId);
             const current = normalizeSessionId(currentSessionId);
-
             if (preferred && sessions.some((s) => normalizeSessionId(s.session_id) === preferred)) {
                 currentSessionId = preferred;
             } else if (current && sessions.some((s) => normalizeSessionId(s.session_id) === current)) {
@@ -196,7 +405,6 @@
             } else {
                 currentSessionId = sessions.length ? normalizeSessionId(sessions[0].session_id) : null;
             }
-
             renderSessionList(sessions);
         }
 
@@ -216,7 +424,6 @@
         async function deleteSession(sessionId) {
             const sid = normalizeSessionId(sessionId);
             if (!sid) return;
-
             const deletingCurrent = sid === currentSessionId;
             const res = await fetch("/session/delete", {
                 method: "POST",
@@ -227,7 +434,6 @@
                 alert("删除会话失败：" + await parseError(res));
                 return;
             }
-
             await refreshSessions(deletingCurrent ? null : currentSessionId);
             if (currentSessionId) {
                 await loadSessionMessages(currentSessionId);
@@ -242,7 +448,6 @@
                 renderEmptyChat();
                 return;
             }
-
             const res = await fetch("/session/messages?session_id=" + encodeURIComponent(sid));
             if (!res.ok) {
                 const err = await parseError(res);
@@ -254,7 +459,6 @@
                 alert("加载会话失败：" + err);
                 return;
             }
-
             const data = await res.json();
             renderMessages(data.messages || []);
         }
@@ -263,33 +467,27 @@
             if (sending) return;
             const q = questionInput.value.trim();
             if (!q) return;
-
             if (!currentSessionId) {
                 await createSession();
             }
-
             appendMessage("user", q);
             const aiDiv = appendMessage("assistant", "");
             questionInput.value = "";
             setSendingState(true);
-
             try {
                 const res = await fetch("/ask", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ question: q, session_id: currentSessionId }),
                 });
-
                 if (!res.ok) {
                     aiDiv.textContent = "AI：" + (await parseError(res));
                     return;
                 }
-
                 const headerSessionId = normalizeSessionId(res.headers.get("X-Session-Id"));
                 if (headerSessionId) {
                     currentSessionId = headerSessionId;
                 }
-
                 if (!res.body) {
                     aiDiv.textContent = "AI：" + (await res.text());
                 } else {
@@ -306,7 +504,6 @@
                     answer += decoder.decode();
                     aiDiv.textContent = "AI：" + answer;
                 }
-
                 await refreshSessions(currentSessionId);
             } catch (e) {
                 aiDiv.textContent = "AI：请求失败，" + e.message;
@@ -316,34 +513,4 @@
         }
     </script>
 </body>
-<label class="thinking-switch">
-        <input type="checkbox" id="enable-thinking">
-        <span class="slider"></span>
-        <span class="label-text">深度思考</span>
-    </label>
-    <div class="control-item">
-        <label for="thinking-strength" class="control-label">思考强度：</label>
-        <select id="thinking-strength">
-            <option value="high" selected>高 (High)</option>
-            <option value="max">极高 (Max)</option>
-        </select>
-    </div>
-
-    <div class="control-item">
-        <label class="switch-label">
-            <input type="checkbox" id="enable-search">
-            <span class="slider"></span>
-            <span class="label-text">联网搜索</span>
-        </label>
-    </div>
-
-    <div class="control-item">
-        <label class="switch-label">
-            <input type="checkbox" id="enable-memory">
-            <span class="slider"></span>
-            <span class="label-text">长期记忆</span>
-        </label>
-    </div>
-</div>
-
 </html>
