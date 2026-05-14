@@ -26,7 +26,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
     "mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
+# 新增：是否开启大模型思考过程等设置
+    ENABLE_AI_THINKING = False 
+    THINKING_STRENGTH = "high"  # 默认为 high，可选 high / max
+    ENABLE_SEARCH = False
+    ENABLE_MEMORY = False
 db = SQLAlchemy(app)
 
 
@@ -74,10 +78,15 @@ def generate_title(question: str) -> str:
         return f"new-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     return text[:15]
 
-
-def get_ai_answer_with_messages_stream(messages, question):
+ # 新增； Model 类内部有一个属性或方法可以控制是否输出思考过程（只是假设方法，需要更多补充）
+def get_ai_answer_with_messages_stream(messages, question, enable_thinking=False,thinking_strength="high", search=False, memory=False):
     model = Model()
     model.messages = model.messages[:1] + messages
+    # 假设 Model 类支持设置这些属性(需要补充)
+    model.enable_thinking = enable_thinking
+    model.thinking_strength = thinking_strength
+    model.enable_search = search
+    model.enable_memory = memory
     yield from model.stream_chat_chunks(question)
 
 
@@ -203,19 +212,24 @@ def session_delete():
     if not row:
         return jsonify({"error": "not_found"}), 404
 
-    # Fully delete this session and all messages under it.
     ChatMessage.query.filter_by(session_id=row.id).delete()
     db.session.delete(row)
     db.session.commit()
     return jsonify({"ok": True})
 
-
+#从前端传来的 JSON 数据里获取这个开关（如果前端没传，则默认使用配置文件中的全局设置），并将其传给工具函数
 @app.route("/ask", methods=["POST"])
 def ask():
     data = request.get_json() or {}
     question = data.get("question", "")
     session_id = data.get("session_id")
-
+    
+    # 获取前端传来的开关，如果没有传，则读取 config 中的默认值
+    enable_thinking = data.get("enable_thinking", app.config.get("ENABLE_AI_THINKING"))
+    thinking_strength = data.get("thinking_strength", app.config.get("THINKING_STRENGTH"))
+    search = data.get("search", app.config.get("ENABLE_SEARCH"))
+    memory = data.get("memory", app.config.get("ENABLE_MEMORY"))
+    
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
@@ -251,7 +265,8 @@ def ask():
     def generate():
         answer_chunks = []
         try:
-            for chunk in get_ai_answer_with_messages_stream(messages, question):
+            # 将开关传递给流式生成函数
+            for chunk in get_ai_answer_with_messages_stream(messages, question,enable_thinking, thinking_strength, search, memory): 
                 answer_chunks.append(chunk)
                 yield chunk
 
