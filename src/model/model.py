@@ -30,7 +30,7 @@ class Model:
 
         self.system_prompt = system_prompt or load_system_prompt()
         self.messages = [{"role": "system", "content": self.system_prompt}]
-
+    
     def stream_chat_chunks(self, prompt, temperature=0.7, extra_params=None):
         """Yield model output by content chunk."""
         self.messages.append({"role": "user", "content": prompt})
