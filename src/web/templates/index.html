@@ -6,6 +6,15 @@
 <head>
     <meta charset="UTF-8">
     <title>AI问答</title>
+    <!-- 1. 引入本地或 CDN 的 KaTeX CSS 样式 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+
+    <!-- 2. 引入 Marked.js 用于解析 Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- 3. 引入 KaTeX 核心 JS 和自动渲染插件 -->
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -292,7 +301,29 @@
                 renderEmptyChat();
             }
         };
+        // 【新增】将 Markdown 文本转换为包含数学公式的 HTML
+        function renderMarkdownAndMath(text) {
+            // 1. 使用 marked 将 Markdown 转换为 HTML
+            let html = marked.parse(text);
 
+            // 2. 创建一个临时容器来承载 HTML，方便 KaTeX 扫描
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+
+            // 3. 调用 KaTeX 自动渲染其中的数学公式
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(tempDiv, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},   // 块级公式
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '$', right: '$', display: false},    // 行内公式
+                        {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false // 遇到语法错误不中断渲染
+                });
+            }
+            return tempDiv.innerHTML;
+        }
         function normalizeSessionId(value) {
             if (value === null || value === undefined || value === "") {
                 return null;
@@ -319,7 +350,11 @@
             box.innerHTML = "";
             messages.forEach((m) => {
                 if (m.role === "user" || m.role === "assistant") {
-                    appendMessage(m.role, m.content || "");
+                    // 如果是 AI 的消息，需要通过 renderMarkdownAndMath 转换后再显示
+                    const content = (m.role === "assistant")
+                        ? renderMarkdownAndMath(m.content || "")
+                        : (m.content || "");
+                    appendMessage(m.role, content);
                 }
             });
             box.scrollTop = box.scrollHeight;
@@ -477,6 +512,10 @@
             const aiDiv = appendMessage("assistant", "");
             questionInput.value = "";
             setSendingState(true);
+
+            // 用于累积 AI 返回的完整 Markdown 文本
+            let fullResponseText = "";
+
             try {
                 const res = await fetch("/ask", {
                     method: "POST",
@@ -487,25 +526,52 @@
                     aiDiv.textContent = "AI：" + (await parseError(res));
                     return;
                 }
+
                 const headerSessionId = normalizeSessionId(res.headers.get("X-Session-Id"));
                 if (headerSessionId) {
                     currentSessionId = headerSessionId;
                 }
+
                 if (!res.body) {
-                    aiDiv.textContent = "AI：" + (await res.text());
+                    // 如果浏览器不支持流式响应体，则降级为普通文本显示
+                    const text = await res.text();
+                    aiDiv.innerHTML = "AI：" + renderMarkdownAndMath(text);
                 } else {
                     const reader = res.body.getReader();
                     const decoder = new TextDecoder("utf-8");
-                    let answer = "";
+
                     while (true) {
                         const result = await reader.read();
                         if (result.done) break;
-                        answer += decoder.decode(result.value, { stream: true });
-                        aiDiv.textContent = "AI：" + answer;
+
+                        // 解码后端传来的数据块
+                        const chunk = decoder.decode(result.value, { stream: true });
+                        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+                        // 按照 SSE 协议提取 data: 后面的真实内容
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                fullResponseText += line.replace('data: ', '');
+                            }
+                        }
+
+                        // 【核心改动】实时将累积的 Markdown 文本渲染成带公式的 HTML
+                        aiDiv.innerHTML = "AI：" + renderMarkdownAndMath(fullResponseText);
                         box.scrollTop = box.scrollHeight;
                     }
-                    answer += decoder.decode();
-                    aiDiv.textContent = "AI：" + answer;
+
+                    // 读取完毕后，确保最后的数据也全部渲染出来
+                    const remaining = decoder.decode();
+                    if (remaining) {
+                         // 同样需要处理可能存在的 SSE 格式
+                        const lines = remaining.split('\n').filter(line => line.trim() !== '');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                fullResponseText += line.replace('data: ', '');
+                            }
+                        }
+                        aiDiv.innerHTML = "AI：" + renderMarkdownAndMath(fullResponseText);
+                    }
                 }
                 await refreshSessions(currentSessionId);
             } catch (e) {

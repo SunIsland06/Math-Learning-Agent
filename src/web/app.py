@@ -267,10 +267,11 @@ def ask():
     def generate():
         answer_chunks = []
         try:
-            # 将开关传递给流式生成函数
-            for chunk in get_ai_answer_with_messages_stream(messages, question,enable_thinking, thinking_strength, search, memory): 
+            for chunk in get_ai_answer_with_messages_stream(messages, question, enable_thinking, thinking_strength,
+                                                            search, memory):
                 answer_chunks.append(chunk)
-                yield chunk
+                # ⬇️ 关键改动：按照 SSE 标准格式 yield 数据
+                yield f"data: {chunk}\n\n"
 
             answer = "".join(answer_chunks)
             db.session.add(
@@ -287,7 +288,8 @@ def ask():
             db.session.rollback()
             raise
 
-    response = Response(generate(), mimetype="text/plain; charset=utf-8")
+    # ⬇️ 关键改动：将 mimetype 从 text/plain 改为标准的流式传输协议
+    response = Response(generate(), mimetype="text/event-stream")
     response.headers["X-Session-Id"] = str(session_id)
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
