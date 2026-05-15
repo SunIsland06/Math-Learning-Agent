@@ -1,0 +1,26 @@
+改造后端，让模型带上“生图指令”
+很多通用大模型默认只输出文字。为了让它在对话中自动插入图片，你需要在发送给大模型的 系统提示词（System Prompt） 中加入明确的生图规则。
+假设你的 Model 类在初始化时可以传入系统提示词，你可以这样调整：
+
+python
+
+编辑
+内容：
+
+
+# 在你的 get_ai_answer_with_messages_stream 函数或 Model 初始化处
+SYSTEM_PROMPT_FOR_IMAGE = """
+你是一个智能助手。当用户需要查看具体的场景、物体或艺术画作时，请直接在回复中插入Markdown格式的图片链接。
+格式要求：![图片描述](这里填入调用生图API生成的真实URL)
+注意：不要编造不存在的URL，必须通过调用生图工具获取真实的图片地址后填入。
+"""
+
+def get_ai_answer_with_messages_stream(messages, question, ...):
+    model = Model()
+    # 将生图规则注入到大模型的上下文中
+    model.system_prompt = SYSTEM_PROMPT_FOR_IMAGE 
+    model.messages = model.messages[:1] + messages
+    
+    # ...原有的流式输出逻辑保持不变...
+    yield from model.stream_chat_chunks(question)
+注：这一步的前提是你的 Model 类内部集成了类似 DALL-E 3、Stable Diffusion API 或 PromptImg 等文生图工具。当模型识别到用户意图需要配图时，会在后台静默调用生图接口拿到 URL，再拼接到回复的文本流中。

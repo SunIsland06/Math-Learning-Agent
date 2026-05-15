@@ -1,4 +1,7 @@
 <!DOCTYPE html>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script> /* 引入 marked.js 用于解析 Markdown */
+
 <html>
 <head>
     <meta charset="UTF-8">
@@ -511,6 +514,33 @@
                 setSendingState(false);
             }
         }
+
+        let fullResponseText = ""; // 用来累积后端传来的所有文字块
+        // 使用 fetch 接收流式数据
+        fetch('/ask', { method: 'POST', body: JSON.stringify({question: "帮我画一只可爱的猫"}) }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            function readStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) return;
+
+                    // 1. 解码后端传来的文字块
+                    const chunk = decoder.decode(value, { stream: true });
+                    fullResponseText += chunk;
+
+                    // 2. 【关键】使用 marked 将包含 ![...] 的文本实时转为 HTML
+                    // marked 会自动把 ![描述](url) 转换成 <img src="url" alt="描述">
+                    const htmlContent = marked.parse(fullResponseText);
+
+                    // 3. 渲染到页面上
+                    document.getElementById('chat-box').innerHTML = htmlContent;
+
+                    readStream(); // 继续读取下一块
+                });
+            }
+            readStream();
+        });
     </script>
 </body>
 </html>
