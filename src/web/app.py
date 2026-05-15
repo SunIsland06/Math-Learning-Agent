@@ -26,11 +26,13 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
     "mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
 # 新增：是否开启大模型思考过程等设置
-    ENABLE_AI_THINKING = False 
-    THINKING_STRENGTH = "high"  # 默认为 high，可选 high / max
-    ENABLE_SEARCH = False
-    ENABLE_MEMORY = False
+ENABLE_AI_THINKING = False 
+THINKING_STRENGTH = "high"  # 默认为 high，可选 high / max
+ENABLE_SEARCH = False
+ENABLE_MEMORY = False
+
 db = SQLAlchemy(app)
 
 

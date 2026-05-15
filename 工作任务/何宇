@@ -3,4 +3,4 @@ TODO1: 让所有存在的skill以正确的格式存在
 TODO2: 完成渲染AI的输出格式Markdown到正常的HTML格式的skill
        完成转换Markdown格式到PDF, HTML, PNG格式的skill(使用本地KeTax)
 
-TODO3: 完善geometry这个skill的调用, 让Agent能在用户需要该需求的时候调用
+TODO3: 完成网页搜索的MCP服务
