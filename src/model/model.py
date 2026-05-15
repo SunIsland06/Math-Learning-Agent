@@ -74,7 +74,6 @@ class Model:
             except requests.HTTPError:
                 self._log_http_error("chat.completions", payload, headers, res)
                 raise
-
             for line in res.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):
                     continue
@@ -104,6 +103,13 @@ class Model:
                     yield content
 
             if has_tool_calls:
+                self._log_http_exchange(
+                    "chat.completions",
+                    payload,
+                    headers,
+                    res,
+                    response_content=full_answer,
+                )
                 self._append_tool_calls(tool_calls, full_reasoning)
                 tool_messages = self._run_tool_calls(tool_calls)
                 self.messages.extend(tool_messages)
@@ -114,6 +120,13 @@ class Model:
             if full_reasoning:
                 assistant_message["reasoning_content"] = full_reasoning
             self.messages.append(assistant_message)
+            self._log_http_exchange(
+                "chat.completions",
+                payload,
+                headers,
+                res,
+                response_content=full_answer,
+            )
         except Exception as e:
             yield f"Model request error: {str(e)}"
 
@@ -158,7 +171,6 @@ class Model:
         except requests.HTTPError:
             self._log_http_error("chat.completions.followup", payload, headers, res)
             raise
-
         full_answer = ""
         full_reasoning = ""
         for line in res.iter_lines(decode_unicode=True):
@@ -188,6 +200,13 @@ class Model:
         if full_reasoning:
             assistant_message["reasoning_content"] = full_reasoning
         self.messages.append(assistant_message)
+        self._log_http_exchange(
+            "chat.completions.followup",
+            payload,
+            headers,
+            res,
+            response_content=full_answer,
+        )
 
     def stream_chat(self, prompt, temperature=0.7, extra_params=None):
         """Backward compatible char-level stream."""
@@ -199,6 +218,26 @@ class Model:
         self.messages = [self.messages[0]]
 
     def _log_http_error(self, tag: str, payload: Dict[str, Any], headers: Dict[str, str], response) -> None:
+        self._write_log(tag, payload, headers, response)
+
+    def _log_http_exchange(
+        self,
+        tag: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        response,
+        response_content: str | None = None,
+    ) -> None:
+        self._write_log(tag, payload, headers, response, response_content=response_content)
+
+    def _write_log(
+        self,
+        tag: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        response,
+        response_content: str | None = None,
+    ) -> None:
         log_dir = Path(__file__).resolve().parents[2] / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"deepseek-{datetime.utcnow().strftime('%Y%m%d')}.log"
@@ -207,10 +246,13 @@ class Model:
         if "Authorization" in safe_headers:
             safe_headers["Authorization"] = "Bearer ***"
 
-        try:
-            body_text = response.text
-        except Exception:
-            body_text = "<unavailable>"
+        if response_content is not None:
+            body_text = response_content
+        else:
+            try:
+                body_text = response.text
+            except Exception:
+                body_text = "<unavailable>"
 
         record = {
             "time": datetime.utcnow().isoformat() + "Z",

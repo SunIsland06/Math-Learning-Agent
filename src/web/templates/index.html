@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>AI问答</title>
+    <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
     <style>
         * {
             box-sizing: border-box;
@@ -170,10 +171,35 @@
 
         .item {
             margin: 10px 0;
-            white-space: pre-wrap;
             line-height: 1.5;
             padding: 10px;
             border-radius: 4px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .label {
+            flex-shrink: 0;
+        }
+
+        .message-body {
+            width: 100%;
+        }
+
+        .message-body.plain {
+            white-space: pre-wrap;
+        }
+
+        .message-body p {
+            margin: 0 0 8px;
+        }
+
+        .message-body p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-body .katex-display {
+            margin: 8px 0;
         }
 
         .user {
@@ -265,6 +291,8 @@
         </main>
     </div>
 
+    <script src="/static/vendor/katex/katex.min.js"></script>
+    <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
     <script>
         // 保持原有 JavaScript 逻辑不变
         let currentSessionId = null;
@@ -273,6 +301,17 @@
         const questionInput = document.getElementById("question");
         const sendBtn = document.getElementById("send-btn");
         const sessionListEl = document.getElementById("session-list");
+
+        function renderMath(el) {
+            if (!window.renderMathInElement) return;
+            window.renderMathInElement(el, {
+                delimiters: [
+                    { left: "$$", right: "$$", display: true },
+                    { left: "$", right: "$", display: false },
+                ],
+                throwOnError: false,
+            });
+        }
 
         questionInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -303,10 +342,30 @@
             questionInput.disabled = value;
         }
 
+        function setMessageContent(div, role, content) {
+            const body = div.querySelector(".message-body");
+            if (!body) return;
+            if (role === "assistant") {
+                body.classList.add("plain");
+                body.textContent = content || "";
+                renderMath(body);
+            } else {
+                body.textContent = content || "";
+                body.classList.add("plain");
+            }
+        }
+
         function appendMessage(role, content) {
             const div = document.createElement("div");
             div.className = "item " + (role === "user" ? "user" : "ai");
-            div.textContent = (role === "user" ? "你：" : "AI：") + (content || "");
+            const label = document.createElement("span");
+            label.className = "label";
+            label.textContent = role === "user" ? "你：" : "AI：";
+            const body = document.createElement("div");
+            body.className = "message-body";
+            div.appendChild(label);
+            div.appendChild(body);
+            setMessageContent(div, role, content || "");
             box.appendChild(div);
             box.scrollTop = box.scrollHeight;
             return div;
@@ -481,7 +540,7 @@
                     body: JSON.stringify({ question: q, session_id: currentSessionId }),
                 });
                 if (!res.ok) {
-                    aiDiv.textContent = "AI：" + (await parseError(res));
+                    setMessageContent(aiDiv, "assistant", await parseError(res));
                     return;
                 }
                 const headerSessionId = normalizeSessionId(res.headers.get("X-Session-Id"));
@@ -489,7 +548,7 @@
                     currentSessionId = headerSessionId;
                 }
                 if (!res.body) {
-                    aiDiv.textContent = "AI：" + (await res.text());
+                    setMessageContent(aiDiv, "assistant", await res.text());
                 } else {
                     const reader = res.body.getReader();
                     const decoder = new TextDecoder("utf-8");
@@ -498,15 +557,15 @@
                         const result = await reader.read();
                         if (result.done) break;
                         answer += decoder.decode(result.value, { stream: true });
-                        aiDiv.textContent = "AI：" + answer;
+                        setMessageContent(aiDiv, "assistant", answer);
                         box.scrollTop = box.scrollHeight;
                     }
                     answer += decoder.decode();
-                    aiDiv.textContent = "AI：" + answer;
+                    setMessageContent(aiDiv, "assistant", answer);
                 }
                 await refreshSessions(currentSessionId);
             } catch (e) {
-                aiDiv.textContent = "AI：请求失败，" + e.message;
+                setMessageContent(aiDiv, "assistant", "请求失败，" + e.message);
             } finally {
                 setSendingState(false);
             }
