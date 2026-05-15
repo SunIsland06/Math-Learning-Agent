@@ -28,7 +28,7 @@ class GlobalConfig:
 
 	def _resolve_config_path(self):
 		repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-		return os.path.join(repo_root, "config", "myglobal.yml")
+		return os.path.join(repo_root, "config", "global.yml")
 
 	def _load_yaml(self, path):
 		with open(path, "r", encoding="utf-8") as f:

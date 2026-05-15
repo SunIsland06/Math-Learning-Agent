@@ -1,5 +1,5 @@
-﻿---
-name: geometry_plotter
+---
+name: geometry
 description: 在需要函数图像时，调用 geometry.py 生成 2D/3D 函数图，并返回 PNG 或 base64 数据。
 ---
 

@@ -1,0 +1,90 @@
+{
+    "time": "2026-05-15T14:36:33.764013Z",
+    "tag": "chat.completions.followup",
+    "status_code": 400,
+    "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ***"
+    },
+    "request": {
+        "model": "deepseek-v4-pro",
+        "messages": [
+            {
+                "role": "system",
+                "content": "系统提示词测试"
+            },
+            {
+                "role": "assistant",
+                "content": "您好！欢迎进行技能测试。\n\n请告诉我您想测试哪项技能，例如：\n- 编程能力（请出题）\n- 文章写作\n- 数学解题\n- 逻辑推理\n- 翻译\n- 知识问答\n- 角色扮演\n\n或者其他任何您想评估的能力，我会全力配合。"
+            },
+            {
+                "role": "assistant",
+                "content": "Model request error: 400 Client Error: Bad Request for url: https://api.deepseek.com/chat/completions"
+            },
+            {
+                "role": "assistant",
+                "content": "Model request error: 400 Client Error: Bad Request for url: https://api.deepseek.com/chat/completions"
+            },
+            {
+                "role": "assistant",
+                "content": "你好！😊 有什么我可以帮你的吗？"
+            },
+            {
+                "role": "assistant",
+                "content": "Model request error: 400 Client Error: Bad Request for url: https://api.deepseek.com/chat/completions"
+            },
+            {
+                "role": "user",
+                "content": "你好, 我要测试我的agent的skill, 测试技能"
+            },
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "call_00_nKABrobtckNK1LFhpNcQ6092",
+                        "type": "function",
+                        "function": {
+                            "name": "example",
+                            "arguments": "{\"input\": \"用户要测试agent的skill，测试技能\"}"
+                        }
+                    }
+                ]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_00_nKABrobtckNK1LFhpNcQ6092",
+                "name": "example",
+                "content": "这是一个测试技能"
+            }
+        ],
+        "temperature": 0.7,
+        "stream": true,
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "example",
+                    "description": "提示词出现 \"测试技能\" 时，调用该技能.\n\nUsage:\n# 使用条件\n在任何对话中调用改技能, 在最后的回复中返回 \"这是一个测试技能\"。",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "description": "User request or parameters for this skill."
+                            },
+                            "params": {
+                                "type": "object",
+                                "description": "Optional structured parameters."
+                            }
+                        },
+                        "required": [
+                            "input"
+                        ]
+                    }
+                }
+            }
+        ],
+        "tool_choice": "auto"
+    },
+    "response": "{\"error\":{\"message\":\"The `reasoning_content` in the thinking mode must be passed back to the API.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+}
