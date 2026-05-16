@@ -8,7 +8,7 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VECTOR_FILE = os.path.join(BASE_DIR, "vectorized_chunks.json")
 DB_PATH = os.path.join(BASE_DIR, "db", "math_knowledge_db")
-COLLECTION_NAME = "math_textbooks"
+COLLECTION_NAME = "math_textbooks_v2"
 OLLAMA_API = "http://127.0.0.1:11434/api/embeddings"
 MODEL_NAME = "nomic-embed-text"
 
@@ -28,6 +28,22 @@ def init_chroma():
     print(f"✅ 已连接到 Chroma 数据库：{COLLECTION_NAME}")
     return collection
 
+def _build_document(item):
+    return item.get("content") or ""
+
+
+def _file_to_subject(filename):
+    """根据文件名判定学科分类。"""
+    lower = (filename or "").lower()
+    if "gaoshu" in lower:
+        return "高等数学"
+    if "discretemath" in lower:
+        return "离散数学"
+    if "linearalgebra" in lower:
+        return "线性代数"
+    return "未知"
+
+
 # ===================== 3. 批量插入数据 =====================
 def insert_data(collection, data):
     # 按批次插入向量化数据
@@ -36,9 +52,18 @@ def insert_data(collection, data):
     for i in range(0, len(data), batch_size):
         batch = data[i:i+batch_size]
         ids = [str(uuid.uuid4()) for _ in batch]
-        documents = [item["content"] for item in batch]
+        documents = [_build_document(item) for item in batch]
         embeddings = [item["embedding"] for item in batch]
-        metadatas = [{"file": item["file"]} for item in batch]
+        metadatas = [
+            {
+                "file": item["file"],
+                "subject": _file_to_subject(item.get("file", "")),
+                "heading_path": item.get("heading_path"),
+                "chunk_index": item.get("chunk_index"),
+                "start_line": item.get("start_line")
+            }
+            for item in batch
+        ]
 
         collection.add(
             ids=ids,

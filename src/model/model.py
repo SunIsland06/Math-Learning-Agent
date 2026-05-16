@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config.globalConfig import get_global_config
 from skill.skillCall import SkillCaller, merge_tool_call_delta
 from rag.integration import retrieve_context
+from mcp_services.mcp_manager import get_mcp_manager
 
 
 class Model:
@@ -51,8 +52,11 @@ class Model:
         else:
             payload_messages = self.messages
 
-        # 构建工具清单，允许模型发起工具调用
+        # 构建工具清单（技能 + MCP）
         tools = self.skill_caller.build_tools()
+        mcp_manager = get_mcp_manager()
+        if mcp_manager.is_ready():
+            tools = tools + mcp_manager.build_tools()
         payload = {
             "model": self.model_name,
             "messages": payload_messages,
@@ -158,13 +162,20 @@ class Model:
         self.messages.append(message)
 
     def _run_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        # 逐个执行工具调用并返回结果消息
+        # 逐个执行工具调用，MCP 工具路由到 MCP 管理器
         tool_messages: List[Dict[str, Any]] = []
+        mcp_manager = get_mcp_manager()
         for call in tool_calls:
             function = call.get("function", {})
             name = function.get("name", "")
             arguments = function.get("arguments", "")
-            result = self.skill_caller.execute_tool_call(name, arguments)
+            # 判断是否为 MCP 工具
+            if mcp_manager.is_ready() and any(
+                t["function"]["name"] == name for t in mcp_manager.build_tools()
+            ):
+                result = mcp_manager.execute_tool(name, arguments)
+            else:
+                result = self.skill_caller.execute_tool_call(name, arguments)
             tool_messages.append(self.skill_caller.build_tool_message(call.get("id", ""), name, result))
 
         return tool_messages
@@ -176,12 +187,17 @@ class Model:
         if rag_message:
             payload_messages = self.messages[:-1] + [rag_message, self.messages[-1]]
 
+        followup_tools = self.skill_caller.build_tools()
+        mcp_manager = get_mcp_manager()
+        if mcp_manager.is_ready():
+            followup_tools = followup_tools + mcp_manager.build_tools()
+
         payload = {
             "model": self.model_name,
             "messages": payload_messages,
             "temperature": temperature,
             "stream": True,
-            "tools": self.skill_caller.build_tools(),
+            "tools": followup_tools,
             "tool_choice": "auto",
         }
         if extra_params:
@@ -244,16 +260,16 @@ class Model:
                 yield char
 
     def _build_rag_message(self, question: str) -> Dict[str, Any] | None:
-        # 从向量库检索上下文并拼成系统消息
+        # 从向量库检索上下文并拼成系统消息（含学科分类）
         context, sources = retrieve_context(question, top_k=3)
         if not context:
             return None
-        sources_text = ", ".join(sources) if sources else "unknown"
+        sources_text = "；".join(sources) if sources else "unknown"
         content = (
-            "以下是从本地教材检索得到的片段，请优先依据这些内容回答，"
-            "若与问题无关可忽略：\n\n"
-            f"【来源】{sources_text}\n"
-            f"【教材片段】\n{context}"
+            "【知识库检索结果】请优先依据以下教材片段回答用户问题。"
+            "若检索内容与问题无关，可结合自身知识回答。\n\n"
+            f"匹配来源：{sources_text}\n\n"
+            f"教材片段：\n{context}"
         )
         return {"role": "system", "content": content}
 

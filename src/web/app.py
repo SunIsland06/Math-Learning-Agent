@@ -21,6 +21,7 @@ from flask_sqlalchemy import SQLAlchemy
 # 将 src 根目录加入模块搜索路径
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from model.model import Model
+from mcp_services.mcp_manager import get_mcp_manager
 
 app = Flask(__name__)
 app.secret_key = "123456789"
@@ -211,6 +212,9 @@ def register():
     if request.method == "POST":
         username = request.form.get("username")
         pwd = request.form.get("pwd")
+        pwd_confirm = request.form.get("pwd_confirm")
+        if pwd != pwd_confirm:
+            return "两次密码不一致！<a href='/register'>返回注册</a>"
         if User.query.filter_by(username=username).first():
             return "账号已存在！<a href='/register'>返回注册</a>"
         encrypt_pwd = sha256_encrypt(pwd)
@@ -502,6 +506,11 @@ def ask():
 with app.app_context():
     db.create_all()
 
+# ---- 启动 MCP 管理器 ----
+mcp_mgr = get_mcp_manager()
+mcp_mgr.register_server("web_search", "web_search_server.py", "联网搜索服务")
+mcp_mgr.start()
+print("[MCP] MCP 管理器已启动")
 
 if __name__ == "__main__":
     app.run(debug=True)

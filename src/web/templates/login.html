@@ -60,18 +60,70 @@
             gap: 6px;
         }
 
+        .password-field {
+            position: relative;
+        }
+
         label {
             font-size: 12px;
             color: var(--text-2);
         }
 
         input {
+            width: 100%;
             padding: 12px 14px;
             border-radius: 10px;
             border: 1px solid var(--border);
             background: rgba(12, 18, 32, 0.9);
             color: var(--text-1);
             font-size: 14px;
+        }
+
+        .password-field input {
+            padding-right: 46px;
+        }
+
+        .show-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(232, 238, 252, 0.75);
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+        }
+
+        .show-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .show-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+        }
+
+        .show-btn::after {
+            content: "";
+            position: absolute;
+            width: 20px;
+            height: 2px;
+            background: currentColor;
+            transform: rotate(-35deg);
+            opacity: 0.7;
+        }
+
+        .show-btn.is-revealed::after {
+            opacity: 0;
         }
 
         input::placeholder {
@@ -112,10 +164,47 @@
         </div>
         <div class="field">
             <label for="pwd">密码</label>
-            <input id="pwd" type="password" name="pwd" placeholder="输入密码" required>
+            <div class="password-field">
+                <input id="pwd" type="password" name="pwd" placeholder="输入密码" required>
+                <button class="show-btn" type="button" data-target="pwd" aria-label="按住显示密码">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"></path>
+                        <circle cx="12" cy="12" r="3.5"></circle>
+                    </svg>
+                </button>
+            </div>
         </div>
         <button type="submit">登录</button>
         <div class="footer">还没有账号？<a href="{{ url_for('register') }}">点击注册</a></div>
     </form>
+    <script>
+        const showButtons = document.querySelectorAll(".show-btn");
+
+        showButtons.forEach((btn) => {
+            const targetId = btn.getAttribute("data-target");
+            const input = document.getElementById(targetId);
+            if (!input) {
+                return;
+            }
+
+            const show = () => {
+                input.type = "text";
+                btn.classList.add("is-revealed");
+            };
+
+            const hide = () => {
+                input.type = "password";
+                btn.classList.remove("is-revealed");
+            };
+
+            btn.addEventListener("mousedown", show);
+            btn.addEventListener("touchstart", show);
+            btn.addEventListener("mouseup", hide);
+            btn.addEventListener("mouseleave", hide);
+            btn.addEventListener("touchend", hide);
+            btn.addEventListener("touchcancel", hide);
+            btn.addEventListener("blur", hide);
+        });
+    </script>
 </body>
 </html>

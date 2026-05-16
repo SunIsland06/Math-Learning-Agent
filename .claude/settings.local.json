@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-Content *)",
+      "PowerShell(pip install *)",
+      "Bash(python *)",
+      "PowerShell(Get-Job *)"
+    ]
+  },
+  "outputStyle": "default"
+}

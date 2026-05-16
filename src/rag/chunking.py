@@ -2,41 +2,142 @@ import os
 import sys
 import io
 import json
+import re
 
 # 修复 Windows 打印乱码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-def split_markdown_by_headers(content: str, max_chunk_len=1500):
-    """
-    按 Markdown 标题分段，保证知识点不被切断
-    """
-    # 逐行扫描，根据标题和长度切块
-    lines = content.splitlines()
+HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+IMAGE_RE = re.compile(r"^!\[.*?\]\(.*?\)\s*$")
+
+DEFAULT_MAX_CHARS = 1000
+DEFAULT_OVERLAP_CHARS = 120
+DEFAULT_MIN_CHARS = 200
+
+def _clean_lines(lines):
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            cleaned.append("")
+            continue
+        if IMAGE_RE.match(stripped):
+            continue
+        if stripped.startswith("<table") or stripped.startswith("</table"):
+            continue
+        cleaned.append(line)
+    return cleaned
+
+def _iter_sections(lines):
+    headers = []
+    current = []
+    start_line = 1
+
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        match = HEADER_RE.match(stripped)
+        if match:
+            if current:
+                yield {
+                    "header_path": headers[:],
+                    "start_line": start_line,
+                    "lines": current
+                }
+                current = []
+            level = len(match.group(1))
+            title = match.group(2).strip() or "未命名章节"
+            if len(headers) >= level:
+                headers = headers[: level - 1]
+            headers.append(title)
+            start_line = idx
+        current.append(line)
+
+    if current:
+        yield {
+            "header_path": headers[:],
+            "start_line": start_line,
+            "lines": current
+        }
+
+def _split_paragraphs(paragraphs, max_chars, overlap_chars):
     chunks = []
-    current_chunk = []
+    current = []
     current_len = 0
 
-    for line in lines:
-        line_stripped = line.strip()
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        paragraph_len = len(paragraph)
 
-        # 遇到标题自动新块
-        if line_stripped.startswith(('# ', '## ', '### ')):
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-                current_chunk = []
-                current_len = 0
+        extra_len = paragraph_len + (2 if current else 0)
+        if current_len + extra_len <= max_chars:
+            current.append(paragraph)
+            current_len += extra_len
+            continue
 
-        current_chunk.append(line)
-        current_len += len(line)
-
-        # 防止单块太长
-        if current_len > max_chunk_len and len(current_chunk) > 2:
-            chunks.append("\n".join(current_chunk))
-            current_chunk = []
+        if current:
+            chunk = "\n\n".join(current).strip()
+            chunks.append(chunk)
+            overlap_text = chunk[-overlap_chars:] if overlap_chars > 0 else ""
+            current = [overlap_text, paragraph] if overlap_text else [paragraph]
+            current_len = len("\n\n".join(current))
+        else:
+            # 单段过长时硬切分
+            start = 0
+            while start < paragraph_len:
+                end = min(start + max_chars, paragraph_len)
+                chunks.append(paragraph[start:end].strip())
+                start = end
+            current = []
             current_len = 0
 
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
+    if current:
+        chunks.append("\n\n".join(current).strip())
+
+    return chunks
+
+def _merge_small_chunks(chunks, min_chars, max_chars):
+    merged = []
+    buffer = ""
+    for chunk in chunks:
+        if not buffer:
+            buffer = chunk
+            continue
+        if len(buffer) < min_chars and len(buffer) + 2 + len(chunk) <= max_chars:
+            buffer = buffer + "\n\n" + chunk
+            continue
+        merged.append(buffer)
+        buffer = chunk
+    if buffer:
+        merged.append(buffer)
+    return merged
+
+def split_markdown_by_headers(content: str, max_chunk_len=DEFAULT_MAX_CHARS, overlap_chars=DEFAULT_OVERLAP_CHARS, min_chunk_len=DEFAULT_MIN_CHARS):
+    """
+    按 Markdown 标题分段，再按段落切块，避免长段落断裂。
+    """
+    lines = _clean_lines(content.splitlines())
+    chunks = []
+
+    for section in _iter_sections(lines):
+        section_text = "\n".join(section["lines"]).strip()
+        if not section_text:
+            continue
+        paragraphs = re.split(r"\n\s*\n", section_text)
+        raw_chunks = _split_paragraphs(paragraphs, max_chunk_len, overlap_chars)
+        merged_chunks = _merge_small_chunks(raw_chunks, min_chunk_len, max_chunk_len)
+
+        heading_path = " > ".join(section["header_path"]).strip()
+        if not heading_path:
+            heading_path = "未命名章节"
+
+        for chunk in merged_chunks:
+            chunks.append({
+                "heading_path": heading_path,
+                "start_line": section["start_line"],
+                "content": chunk
+            })
 
     return chunks
 
@@ -78,11 +179,19 @@ def process_all_md_files():
                 content = f.read()
 
             chunks = split_markdown_by_headers(content)
-            all_chunks.extend([{"file": filename, "content": c} for c in chunks])
-
+            enriched_chunks = []
             for i, chunk in enumerate(chunks):
-                preview = chunk[:180].encode("gbk", "ignore").decode("gbk").strip()
+                enriched_chunks.append({
+                    "file": filename,
+                    "chunk_index": i + 1,
+                    "heading_path": chunk["heading_path"],
+                    "start_line": chunk["start_line"],
+                    "content": chunk["content"]
+                })
+                preview = chunk["content"][:180].encode("gbk", "ignore").decode("gbk").strip()
                 print(f"[{filename}] 块 {i+1}：{preview}...")
+
+            all_chunks.extend(enriched_chunks)
 
             print(f"✅ {filename} 完成，共 {len(chunks)} 块\n")
 
@@ -104,8 +213,10 @@ def process_all_md_files():
 
     with open(txt_path, "w", encoding="utf-8") as f:
         for idx, item in enumerate(all_chunks):
-            f.write(f"===== 块 {idx+1} | 文件：{item['file']} =====\n")
-            f.write(item['content'])
+            f.write(
+                f"===== 块 {idx+1} | 文件：{item['file']} | 章节：{item['heading_path']} =====\n"
+            )
+            f.write(item["content"])
             f.write("\n\n")
 
     print(f"💾 分块已保存：")

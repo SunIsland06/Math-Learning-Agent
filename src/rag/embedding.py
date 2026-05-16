@@ -28,6 +28,9 @@ def get_embedding(text):
         print(f"❌ 向量生成失败：{e}")
         return None
 
+def _build_embedding_text(item):
+    return item.get("content") or ""
+
 def vectorize_all_chunks():
     # 批量读取分块并向量化
     # 读取分块结果
@@ -42,14 +45,19 @@ def vectorize_all_chunks():
     for i, item in enumerate(chunks):
         file = item["file"]
         content = item["content"]
+        heading_path = item.get("heading_path")
 
         print(f"[{i+1}/{len(chunks)}] 处理文件：{file}")
 
-        emb = get_embedding(content)
+        emb_text = _build_embedding_text(item)
+        emb = get_embedding(emb_text)
         if emb:
             vector_data.append({
                 "file": file,
                 "content": content,
+                "heading_path": heading_path,
+                "chunk_index": item.get("chunk_index"),
+                "start_line": item.get("start_line"),
                 "embedding": emb
             })
 

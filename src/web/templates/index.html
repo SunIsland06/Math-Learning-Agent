@@ -427,6 +427,20 @@
             margin: 8px 0;
         }
 
+        .message-body .mermaid {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: var(--radius-md);
+            overflow-x: auto;
+            text-align: center;
+        }
+
+        .message-body .mermaid svg {
+            max-width: 100%;
+            height: auto;
+        }
+
         .message-body img {
             max-width: 100%;
             height: auto;
@@ -658,6 +672,7 @@
     <script src="/static/vendor/katex/katex.min.js"></script>
     <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
     <script src="/static/vendor/markdown-it/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script>
         // 保持原有 JavaScript 逻辑不变
         let currentSessionId = null;
@@ -679,6 +694,12 @@
         let attachments = [];
         let uploading = false;
 
+        let mermaidReady = false;
+        if (window.mermaid) {
+            mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme: "dark" });
+            mermaidReady = true;
+        }
+
         let md = null;
         try {
             if (window.markdownit) {
@@ -688,6 +709,18 @@
                     breaks: true,
                 });
                 md.enable("table");
+                // Custom fence rule for mermaid blocks
+                var defaultFence = md.renderer.rules.fence || function (tokens, idx, options, env, self) {
+                    return self.renderToken(tokens, idx, options);
+                };
+                md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+                    var token = tokens[idx];
+                    var info = token.info ? token.info.trim() : "";
+                    if (info === "mermaid" || info === "mmd") {
+                        return '<div class="mermaid">' + token.content + '</div>';
+                    }
+                    return defaultFence(tokens, idx, options, env, self);
+                };
             }
         } catch (e) {
             md = null;
@@ -700,6 +733,47 @@
 
         function sanitizeContent(text) {
             return (text || "").replace(/\{\{\s*(\/userdata\/[^}]+)\s*\}\}/g, "$1");
+        }
+
+        function normalizeMathDelimiters(text) {
+            return (text || "")
+                .replace(/\\\[/g, "$$")
+                .replace(/\\\]/g, "$$")
+                .replace(/\\\(/g, "$")
+                .replace(/\\\)/g, "$")
+                .replace(/^\s*\$\s*$/gm, "$$");
+        }
+
+        var _mathStore = [];
+        var _mathMarker = "◇"; // safe unicode marker that survives HTML parsing
+        function protectMathBlocks(text) {
+            _mathStore = [];
+            // Protect $$...$$ first (display math, may span lines)
+            var result = text.replace(/\$\$([\s\S]*?)\$\$/g, function(_, math) {
+                _mathStore.push({ type: "block", content: math });
+                return _mathMarker + "MB" + (_mathStore.length - 1) + _mathMarker;
+            });
+            // Protect $...$ (inline math, single line)
+            result = result.replace(/\$([^\s\$](?:[^\$]*[^\s\$])?)\$/g, function(_, math) {
+                _mathStore.push({ type: "inline", content: math });
+                return _mathMarker + "MI" + (_mathStore.length - 1) + _mathMarker;
+            });
+            return result;
+        }
+        function restoreMathBlocks(html) {
+            var esc = _mathMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            var reBlock = new RegExp(esc + "MB(\\d+)" + esc, "g");
+            var reInline = new RegExp(esc + "MI(\\d+)" + esc, "g");
+            html = html.replace(reBlock, function(_, i) {
+                var m = _mathStore[+i];
+                return m && m.type === "block" ? "$$" + m.content + "$$" : "";
+            });
+            html = html.replace(reInline, function(_, i) {
+                var m = _mathStore[+i];
+                return m && m.type === "inline" ? "$" + m.content + "$" : "";
+            });
+            _mathStore = [];
+            return html;
         }
 
         function extractImageUrls(text) {
@@ -894,11 +968,23 @@
                     }
                 });
             }
+            renderText = normalizeMathDelimiters(renderText);
 
             if (md) {
                 body.classList.remove("plain");
-                body.innerHTML = renderMarkdownToHtml(renderText);
+                var protectedText = protectMathBlocks(renderText);
+                var html = renderMarkdownToHtml(protectedText);
+                html = restoreMathBlocks(html);
+                body.innerHTML = html;
                 renderMath(body);
+                if (mermaidReady) {
+                    var mermaidEls = body.querySelectorAll(".mermaid:not([data-processed])");
+                    for (var i = 0; i < mermaidEls.length; i++) {
+                        try {
+                            mermaid.run({ nodes: [mermaidEls[i]] });
+                        } catch (e) {}
+                    }
+                }
             } else {
                 body.classList.add("plain");
                 body.textContent = renderText || "";
