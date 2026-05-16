@@ -10,6 +10,7 @@ def split_markdown_by_headers(content: str, max_chunk_len=1500):
     """
     按 Markdown 标题分段，保证知识点不被切断
     """
+    # 逐行扫描，根据标题和长度切块
     lines = content.splitlines()
     chunks = []
     current_chunk = []
@@ -43,6 +44,7 @@ def process_all_md_files():
     """
     修正版：扫描 rag/textbook/ 目录下的所有 .md 文件
     """
+    # 关键修正：指定到 textbook 子目录
     # 关键修正：指定到 textbook 子目录
     root_dir = os.path.dirname(os.path.abspath(__file__))
     textbook_dir = os.path.join(root_dir, "textbook")

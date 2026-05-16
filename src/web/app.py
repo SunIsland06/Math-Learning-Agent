@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import re
 import sys
@@ -18,12 +18,14 @@ from flask import (
 )
 from flask_sqlalchemy import SQLAlchemy
 
+# 将 src 根目录加入模块搜索路径
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from model.model import Model
 
 app = Flask(__name__)
 app.secret_key = "123456789"
 
+# 数据库连接配置
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     "mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4"
 )
@@ -40,12 +42,14 @@ db = SQLAlchemy(app)
 
 
 class User(db.Model):
+    # 用户信息表
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
 
 
 class ChatRecord(db.Model):
+    # 简易问答记录表
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), nullable=False)
     question = db.Column(db.Text, nullable=False)
@@ -53,6 +57,7 @@ class ChatRecord(db.Model):
 
 
 class ChatSession(db.Model):
+    # 会话表
     __tablename__ = "chat_session"
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), nullable=False, index=True)
@@ -64,6 +69,7 @@ class ChatSession(db.Model):
 
 
 class ChatMessage(db.Model):
+    # 会话消息表
     __tablename__ = "chat_message"
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     session_id = db.Column(db.BigInteger, nullable=False, index=True)
@@ -74,21 +80,25 @@ class ChatMessage(db.Model):
 
 
 def sha256_encrypt(pwd):
+    # 密码哈希
     return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
 
 
 def generate_title(question: str) -> str:
+    # 根据首句生成会话标题
     text = (question or "").strip()
     if not text:
-        return f"new-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+        return f"new-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
     return text[:15]
 
 
 def sanitize_path_part(value: str) -> str:
+    # 过滤路径中的非法字符
     return re.sub(r"[^a-zA-Z0-9._-]", "_", value or "")
 
 
 def get_user_session_dir(username: str, session_id: str | int, ensure: bool = True) -> Path:
+    # 获取用户会话目录
     safe_user = sanitize_path_part(str(username))
     safe_session = sanitize_path_part(str(session_id))
     target = USERDATA_ROOT / safe_user / safe_session
@@ -98,6 +108,7 @@ def get_user_session_dir(username: str, session_id: str | int, ensure: bool = Tr
 
 
 def build_attachment_context(attachments, username: str, session_id: str | int) -> str:
+    # 生成供模型使用的附件上下文
     if not attachments:
         return ""
 
@@ -137,6 +148,7 @@ def build_attachment_context(attachments, username: str, session_id: str | int) 
 
 
 def build_attachment_markdown(attachments, username: str, session_id: str | int) -> str:
+    # 生成供存储的附件 Markdown
     if not attachments:
         return ""
 
@@ -176,6 +188,7 @@ def get_ai_answer_with_messages_stream(
     username="",
     session_id="",
 ):
+    # 组装模型上下文并流式输出回答
     model = Model()
     if username and session_id:
         output_dir = get_user_session_dir(username, session_id, ensure=True)
@@ -194,6 +207,7 @@ def get_ai_answer_with_messages_stream(
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # 注册接口
     if request.method == "POST":
         username = request.form.get("username")
         pwd = request.form.get("pwd")
@@ -208,6 +222,7 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # 登录接口
     if request.method == "POST":
         username = request.form.get("username")
         pwd = request.form.get("pwd")
@@ -223,12 +238,14 @@ def login():
 
 @app.route("/logout")
 def logout():
+    # 退出登录
     session.clear()
     return redirect(url_for("login"))
 
 
 @app.route("/")
 def index():
+    # 首页（历史记录）
     if "username" not in session:
         return redirect(url_for("login"))
     history = ChatRecord.query.filter_by(username=session["username"]).all()
@@ -237,6 +254,7 @@ def index():
 
 @app.route("/userdata/<username>/<session_id>/<path:filename>")
 def userdata_files(username, session_id, filename):
+    # 静态附件下载
     safe_user = sanitize_path_part(username)
     safe_session = sanitize_path_part(session_id)
     base_dir = USERDATA_ROOT / safe_user / safe_session
@@ -245,6 +263,7 @@ def userdata_files(username, session_id, filename):
 
 @app.route("/session/new", methods=["POST"])
 def session_new():
+    # 新建会话
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
@@ -256,6 +275,7 @@ def session_new():
 
 @app.route("/session/list", methods=["GET"])
 def session_list():
+    # 获取会话列表
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
@@ -269,6 +289,7 @@ def session_list():
 
 @app.route("/session/messages", methods=["GET"])
 def session_messages():
+    # 获取指定会话的消息记录
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
@@ -297,6 +318,7 @@ def session_messages():
 
 @app.route("/session/title", methods=["POST"])
 def session_title():
+    # 更新会话标题
     data = request.get_json() or {}
     session_id = data.get("session_id")
     title = (data.get("title") or "").strip()[:15]
@@ -312,6 +334,7 @@ def session_title():
 
 @app.route("/session/delete", methods=["POST"])
 def session_delete():
+    # 删除会话及其消息
     data = request.get_json() or {}
     session_id = data.get("session_id")
     username = session.get("username", "")
@@ -330,6 +353,7 @@ def session_delete():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    # 上传附件并保存到用户会话目录
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
@@ -356,7 +380,7 @@ def upload():
         return jsonify({"error": "unsupported_type"}), 400
 
     safe_stem = sanitize_path_part(Path(original_name).stem) or "upload"
-    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     stored_name = f"{safe_stem}-{stamp}{ext}"
     target_dir = get_user_session_dir(username, session_id, ensure=True)
     target_path = target_dir / stored_name
@@ -378,6 +402,7 @@ def upload():
 #从前端传来的 JSON 数据里获取这个开关（如果前端没传，则默认使用配置文件中的全局设置），并将其传给工具函数
 @app.route("/ask", methods=["POST"])
 def ask():
+    # 主问答接口，支持附件与流式输出
     data = request.get_json() or {}
     question = data.get("question", "")
     session_id = data.get("session_id")
@@ -432,6 +457,7 @@ def ask():
 
     @stream_with_context
     def generate():
+        # 流式生成并写入数据库
         answer_chunks = []
         try:
             # 将开关传递给流式生成函数
@@ -460,7 +486,7 @@ def ask():
             db.session.add(
                 ChatRecord(username=username, question=question_for_storage, answer=answer)
             )
-            chat_session.updated_at = datetime.utcnow()
+            chat_session.updated_at = datetime.now(timezone.utc)
             db.session.commit()
         except BaseException:
             db.session.rollback()

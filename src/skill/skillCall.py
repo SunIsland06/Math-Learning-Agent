@@ -16,6 +16,7 @@ _TOOL_CALL_FUNC = "function"
 
 
 def merge_tool_call_delta(tool_calls: List[Dict[str, Any]], delta_calls: List[Dict[str, Any]]) -> None:
+    # 将流式返回的工具调用增量合并成完整调用
     for call in delta_calls:
         index = int(call.get("index", 0))
         while len(tool_calls) <= index:
@@ -36,14 +37,17 @@ def merge_tool_call_delta(tool_calls: List[Dict[str, Any]], delta_calls: List[Di
 
 class SkillCaller:
     def __init__(self, skill_root: Optional[Path] = None) -> None:
+        # 初始化技能管理器并加载技能
         self.manager = SkillManager(skill_root=skill_root)
         self.manager.load_skills()
         self.context: Dict[str, Any] = {}
 
     def build_tools(self) -> List[Dict[str, Any]]:
+        # 生成供大模型调用的工具列表
         return [spec.to_openai_tool() for spec in self.manager.skills.values()]
 
     def execute_tool_call(self, name: str, arguments: str) -> str:
+        # 解析参数并执行对应技能
         payload = self._parse_arguments(arguments)
         if self.context:
             params = payload.get("params")
@@ -60,6 +64,7 @@ class SkillCaller:
         return self._execute_skill(spec, payload)
 
     def build_tool_message(self, tool_call_id: str, name: str, result: str) -> Dict[str, Any]:
+        # 生成工具调用的返回消息
         return {
             "role": "tool",
             "tool_call_id": tool_call_id,
@@ -68,6 +73,7 @@ class SkillCaller:
         }
 
     def _parse_arguments(self, arguments: str) -> Dict[str, Any]:
+        # 解析工具参数（兼容非 JSON 字符串）
         if not arguments:
             return {"input": "", "params": {}}
 
@@ -87,6 +93,7 @@ class SkillCaller:
         return {"input": input_text, "params": params}
 
     def _execute_skill(self, spec: SkillSpec, payload: Dict[str, Any]) -> str:
+        # 根据技能定义执行入口
         if spec.entry_files:
             for entry in spec.entry_files:
                 suffix = entry.suffix.lower()
@@ -99,6 +106,7 @@ class SkillCaller:
         return fallback or spec.description or spec.instruction or f"Skill {spec.name} executed."
 
     def _run_python_entry(self, path: Path, payload: Dict[str, Any]) -> str:
+        # 动态加载并调用 Python 入口函数
         module = self._load_module_from_path(path)
         if not module:
             return f"Failed to load python entry: {path.name}"
@@ -111,6 +119,7 @@ class SkillCaller:
         return f"No callable entry found in {path.name}"
 
     def _run_binary_entry(self, path: Path, payload: Dict[str, Any]) -> str:
+        # 执行二进制入口并传递 JSON 参数
         try:
             proc = subprocess.run(
                 [str(path)],
@@ -130,6 +139,7 @@ class SkillCaller:
         return stderr or "Binary executed with no output."
 
     def _load_module_from_path(self, path: Path):
+        # 从文件路径加载模块
         try:
             spec = importlib.util.spec_from_file_location(path.stem, path)
             if not spec or not spec.loader:
@@ -141,6 +151,7 @@ class SkillCaller:
             return None
 
     def _invoke_callable(self, func, payload: Dict[str, Any]) -> str:
+        # 根据函数签名选择合适的调用方式
         try:
             sig = inspect.signature(func)
             params = list(sig.parameters.values())
@@ -160,6 +171,7 @@ class SkillCaller:
         return self._normalize_result(result)
 
     def _normalize_result(self, result: Any) -> str:
+        # 将返回值统一规范为字符串
         if result is None:
             return ""
         if isinstance(result, bytes):
@@ -169,6 +181,7 @@ class SkillCaller:
         return str(result)
 
     def _make_json_safe(self, value: Any) -> Any:
+        # 递归处理不可 JSON 序列化的值
         if isinstance(value, bytes):
             return "data:application/octet-stream;base64," + base64.b64encode(value).decode("ascii")
         if isinstance(value, list):
@@ -178,6 +191,7 @@ class SkillCaller:
         return value
 
     def _extract_expected_output(self, instruction: str) -> str:
+        # 从技能说明中提取预期输出（最后一个引号内容）
         if not instruction:
             return ""
 

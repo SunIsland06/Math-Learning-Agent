@@ -8,6 +8,7 @@ class MCP:
 
     # 技能调度入口
     def dispatch(self, user_input):
+        # 统一处理用户输入
         text = user_input
 
         # ======================

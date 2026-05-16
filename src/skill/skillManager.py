@@ -20,6 +20,7 @@ class SkillSpec:
 	entry_files: List[Path] = field(default_factory=list)
 
 	def to_anthropic_tool(self) -> Dict:
+		# 生成 Anthropic 工具描述
 		description = self.description or f"Skill {self.name}."
 		if self.instruction:
 			description = f"{description}\n\nUsage:\n{self.instruction}"
@@ -44,6 +45,7 @@ class SkillSpec:
 		}
 
 	def to_openai_tool(self) -> Dict:
+		# 生成 OpenAI 工具描述
 		description = self.description or f"Skill {self.name}."
 		if self.instruction:
 			description = f"{description}\n\nUsage:\n{self.instruction}"
@@ -73,11 +75,13 @@ class SkillSpec:
 
 class SkillManager:
 	def __init__(self, skill_root: Optional[Path] = None) -> None:
+		# 默认以仓库根目录下的 skill 为技能目录
 		repo_root = Path(__file__).resolve().parents[2]
 		self.skill_root = skill_root or (repo_root / "skill")
 		self.skills: Dict[str, SkillSpec] = {}
 
 	def load_skills(self) -> Dict[str, SkillSpec]:
+		# 扫描技能目录并解析 SKILL.md
 		self.skills = {}
 		if not self.skill_root.exists() or not self.skill_root.is_dir():
 			return self.skills
@@ -112,16 +116,19 @@ class SkillManager:
 		return self.skills
 
 	def get_skill(self, name: str) -> Optional[SkillSpec]:
+		# 按名称获取技能
 		if not self.skills:
 			self.load_skills()
 		return self.skills.get(name)
 
 	def get_anthropic_tools(self) -> List[Dict]:
+		# 输出 Anthropic 工具清单
 		if not self.skills:
 			self.load_skills()
 		return [spec.to_anthropic_tool() for spec in self.skills.values()]
 
 	def build_skill_catalog(self) -> str:
+		# 生成技能目录文本
 		if not self.skills:
 			self.load_skills()
 
@@ -131,6 +138,7 @@ class SkillManager:
 		return "\n".join(lines)
 
 	def _parse_front_matter(self, text: str) -> Tuple[Dict[str, str], str]:
+		# 解析 YAML front matter 与正文
 		text = text.lstrip()
 		if not text.startswith(_FRONT_MATTER_BOUNDARY):
 			return {}, text.strip()
@@ -151,6 +159,7 @@ class SkillManager:
 		return meta, body.strip()
 
 	def _apply_secondary_indices(self, body: str, base_dir: Path) -> Tuple[str, List[Path]]:
+		# 将正文中引用的二级索引合并进技能说明
 		secondary_files: List[Path] = []
 		extra_parts: List[str] = []
 
@@ -172,6 +181,7 @@ class SkillManager:
 		return merged, secondary_files
 
 	def _find_secondary_files(self, text: str) -> List[str]:
+		# 按约定格式提取二级索引文件名
 		matches = []
 		for pattern in [r"调用[\s:：]*[\"“](.+?\.md)[\"”]", r"《(.+?\.md)》"]:
 			matches.extend(re.findall(pattern, text))
@@ -179,6 +189,7 @@ class SkillManager:
 		return list(dict.fromkeys(matches))
 
 	def _find_entry_files(self, text: str, base_dir: Path) -> List[Path]:
+		# 查找技能入口文件（py/exe/bin）
 		entries: List[Path] = []
 		pattern = r"调用[\s:：]*([^\s，。；;]+?\.(?:py|exe|bin))"
 		for match in re.findall(pattern, text):

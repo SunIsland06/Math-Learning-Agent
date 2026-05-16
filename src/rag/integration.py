@@ -17,12 +17,14 @@ CHAT_MODEL = "deepseek-r1:1.5b"  # 视频里的模型，你也可以换成其他
 
 # ===================== 1. 初始化 Chroma 数据库 =====================
 def init_chroma():
+    # 连接或创建 Chroma 集合
     client = chromadb.PersistentClient(path=DB_PATH)
     collection = client.get_or_create_collection(name=COLLECTION_NAME)
     return collection
 
 # ===================== 2. 问题向量化 =====================
 def get_embedding(text):
+    # 调用向量化接口
     res = requests.post(
         url=OLLAMA_EMBED_URL,
         json={"model": EMBED_MODEL, "prompt": text},
@@ -32,6 +34,7 @@ def get_embedding(text):
 
 # ===================== 3. 相似度检索教材内容 =====================
 def search_knowledge(collection, query_text, top_k=3):
+    # 检索相似内容并返回上下文与来源
     query_embedding = get_embedding(query_text)
     results = collection.query(
         query_embeddings=[query_embedding],
@@ -69,6 +72,7 @@ def ask_deepseek(question, context):
 
 # ===================== 5. 完整 RAG 问答流程 =====================
 def math_qa(question):
+    # 完整问答流程：检索 + 回答
     print(f"🔍 你的问题：{question}")
     # 1. 检索教材内容
     collection = init_chroma()
@@ -79,6 +83,19 @@ def math_qa(question):
     answer = ask_deepseek(question, context)
     print(f"\n🤖 回答：{answer}")
     return answer
+
+
+def retrieve_context(question, top_k=3):
+    """Return (context, sources) for the given question, or ("", [])."""
+    # 为模型提供检索上下文，出错时返回空
+    try:
+        collection = init_chroma()
+        if hasattr(collection, "count") and collection.count() == 0:
+            return "", []
+        context, sources = search_knowledge(collection, question, top_k=top_k)
+        return context, sources
+    except Exception:
+        return "", []
 
 # ===================== 运行 =====================
 if __name__ == "__main__":

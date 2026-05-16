@@ -11,11 +11,13 @@ CHUNK_FILE = os.path.join(BASE_DIR, "chunks_result.json")
 OUTPUT_FILE = os.path.join(BASE_DIR, "vectorized_chunks.json")
 
 def file_chunk_list():
+    # 读取分块结果
     with open(CHUNK_FILE, "r", encoding="utf-8") as f:
         chunks = json.load(f)
     return chunks
 
 def ollama_embedding_by_api(text):
+    # 调用 Ollama 生成向量
     try:
         res = requests.post(
             url=OLLAMA_API,
@@ -32,6 +34,7 @@ def ollama_embedding_by_api(text):
         return None
 
 def run():
+    # 批量向量化并写入输出文件
     print("✅ 开始读取教材分块...")
     chunks = file_chunk_list()
     print(f"✅ 共加载 {len(chunks)} 个教材知识点块\n")

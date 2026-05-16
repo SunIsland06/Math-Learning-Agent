@@ -14,6 +14,7 @@ MODEL_NAME = "nomic-embed-text"
 
 # ===================== 1. 读取向量化数据 =====================
 def load_vectorized_data():
+    # 读取向量化后的教材块
     with open(VECTOR_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     print(f"✅ 读取到 {len(data)} 个向量化教材块")
@@ -21,6 +22,7 @@ def load_vectorized_data():
 
 # ===================== 2. 初始化 Chroma 数据库 =====================
 def init_chroma():
+    # 连接或创建集合
     client = chromadb.PersistentClient(path=DB_PATH)
     collection = client.get_or_create_collection(name=COLLECTION_NAME)
     print(f"✅ 已连接到 Chroma 数据库：{COLLECTION_NAME}")
@@ -28,6 +30,7 @@ def init_chroma():
 
 # ===================== 3. 批量插入数据 =====================
 def insert_data(collection, data):
+    # 按批次插入向量化数据
     print(f"📦 准备插入 {len(data)} 个教材块...")
     batch_size = 100
     for i in range(0, len(data), batch_size):
@@ -48,6 +51,7 @@ def insert_data(collection, data):
 
 # ===================== 4. 内置向量化函数（不用导入） =====================
 def ollama_embedding_by_api(text):
+    # 调用 Ollama 获取向量
     try:
         res = requests.post(
             url=OLLAMA_API,
@@ -65,6 +69,7 @@ def ollama_embedding_by_api(text):
 
 # ===================== 5. 测试检索 =====================
 def test_query(collection, query_text="求导的基本公式"):
+    # 用示例问题测试检索效果
     print(f"\n🔍 测试检索：{query_text}")
     query_embedding = ollama_embedding_by_api(query_text)
     if not query_embedding:

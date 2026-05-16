@@ -13,6 +13,7 @@ OUTPUT_VECTORS = os.path.join(BASE_DIR, "vectorized_chunks.json")
 
 def get_embedding(text):
     """调用 Ollama 生成向量"""
+    # 向量化单条文本
     try:
         response = requests.post(
             OLLAMA_API,
@@ -28,6 +29,7 @@ def get_embedding(text):
         return None
 
 def vectorize_all_chunks():
+    # 批量读取分块并向量化
     # 读取分块结果
     with open(INPUT_CHUNKS, "r", encoding="utf-8") as f:
         chunks = json.load(f)
