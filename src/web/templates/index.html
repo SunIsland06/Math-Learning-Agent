@@ -4,35 +4,124 @@
     <meta charset="UTF-8">
     <title>AI问答</title>
     <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <style>
+        :root {
+            --bg-1: #0b0b0c;
+            --bg-2: #151618;
+            --panel: #1c1d21;
+            --panel-alt: #141519;
+            --accent: #b3c7ff;
+            --accent-strong: #91a9ff;
+            --text-1: #f7f7f8;
+            --text-2: #d7d9df;
+            --muted: #9aa0aa;
+            --success: #4fd38a;
+            --border: rgba(255, 255, 255, 0.08);
+            --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+            --radius-xl: 20px;
+            --radius-lg: 14px;
+            --radius-md: 10px;
+        }
+
         * {
             box-sizing: border-box;
         }
 
         body {
             margin: 0;
-            font-family: Arial, sans-serif;
-            height: 100vh; /* 1. 占满全屏高度 */
-            overflow: hidden; /* 2. 隐藏页面级滚动条，由内部模块自行处理 */
+            font-family: "Microsoft YaHei", "微软雅黑", "Noto Sans SC", sans-serif;
+            color: var(--text-1);
+            background: radial-gradient(1200px 700px at 5% -15%, rgba(255, 255, 255, 0.12), transparent 60%),
+                radial-gradient(1000px 700px at 95% 5%, rgba(255, 255, 255, 0.1), transparent 65%),
+                linear-gradient(135deg, #0f1012, #1b1c20 60%, #15161a);
+            height: 100vh;
+            overflow: hidden;
+            padding: 16px;
+        }
+
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            width: 320px;
+            height: 320px;
+            border-radius: 50%;
+            filter: blur(2px);
+            opacity: 0.35;
+            z-index: 0;
+            animation: float 10s ease-in-out infinite;
+        }
+
+        body::before {
+            top: -120px;
+            left: -80px;
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(55, 55, 62, 0.45));
+        }
+
+        body::after {
+            bottom: -140px;
+            right: -80px;
+            background: linear-gradient(160deg, rgba(220, 220, 230, 0.2), rgba(50, 50, 58, 0.5));
+            animation-delay: -4s;
+        }
+
+        @keyframes float {
+            0%,
+            100% {
+                transform: translateY(0) translateX(0);
+            }
+            50% {
+                transform: translateY(16px) translateX(8px);
+            }
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .layout {
             display: grid;
             grid-template-columns: 280px 1fr;
-            height: 100vh;
-            border: 1px solid #ddd;
-            overflow: hidden; /* 确保布局容器不产生滚动 */
+            height: calc(100vh - 32px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            position: relative;
+            z-index: 1;
+        }
+
+        .layout.sidebar-hidden {
+            grid-template-columns: 0 1fr;
         }
 
         /* 侧边栏优化：使用 Flex 布局来分配空间 */
         .sidebar {
-            border-right: 1px solid #ddd;
+            border-right: 1px solid var(--border);
             padding: 12px;
             display: flex;
             flex-direction: column;
             gap: 10px;
             height: 100%; /* 占满父容器高度 */
             overflow: hidden; /* 关键：隐藏侧边栏自身的溢出，让内部列表去滚动 */
+            background: linear-gradient(180deg, #1d1f24 0%, #141519 100%);
+            transition: transform 0.25s ease, opacity 0.25s ease;
+        }
+
+        .layout.sidebar-hidden .sidebar {
+            transform: translateX(-100%);
+            opacity: 0;
+            pointer-events: none;
         }
 
         .sidebar-top {
@@ -43,34 +132,120 @@
             flex-shrink: 0; /* 防止顶部区域被压缩 */
         }
 
+        .sidebar-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .sidebar-top strong {
+            font-family: "Microsoft YaHei", "微软雅黑", "Noto Sans SC", sans-serif;
+            font-size: 18px;
+            color: var(--text-1);
+            letter-spacing: 0.5px;
+        }
+
         .logout-btn {
             padding: 6px 10px;
-            background: #f44336;
+            background: #e05b5b;
             color: #fff;
             border: none;
             border-radius: 4px;
             text-decoration: none;
+            font-size: 12px;
+            box-shadow: 0 6px 16px rgba(240, 106, 106, 0.35);
+        }
+
+        .ghost-btn {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(20, 27, 45, 0.9);
+            color: var(--text-2);
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 0 8px 18px rgba(31, 42, 68, 0.08);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+        }
+
+        .ghost-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 22px rgba(31, 42, 68, 0.12);
+            color: var(--text-1);
         }
 
         .new-btn {
             width: 100%;
             padding: 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            background: #f5f5f5;
+            border: 1px solid transparent;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #5b8cff, #2fe1a0);
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: 0.3px;
             cursor: pointer;
+            box-shadow: 0 10px 22px rgba(31, 111, 235, 0.25);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .new-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 26px rgba(31, 111, 235, 0.3);
         }
 
         /* 设置区域优化：改为单行紧凑布局 */
+        .settings-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 10, 20, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+            backdrop-filter: blur(2px);
+        }
+
+        .settings-modal.open {
+            display: flex;
+        }
+
+        .settings-card {
+            width: min(420px, 92vw);
+            background: #1c1d21;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+            animation: fadeUp 0.25s ease both;
+        }
+
+        .settings-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-1);
+        }
+
         .settings-panel {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            padding: 8px;
-            background: #f9f9f9;
-            border-radius: 4px;
-            border: 1px solid #eee;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(28, 29, 33, 0.9);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
             font-size: 12px;
+        }
+
+        .settings-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .sidebar-bottom {
+            margin-top: auto;
         }
 
         .control-item {
@@ -81,12 +256,14 @@
 
         .control-label {
             font-size: 10px;
-            color: #555;
+            color: var(--muted);
         }
 
         select {
             padding: 2px;
             font-size: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
         }
 
         /* --- 核心改动：让会话列表自动填充并独立滚动 --- */
@@ -97,6 +274,7 @@
             display: flex;
             flex-direction: column;
             gap: 6px;
+            padding-right: 4px;
         }
 
         /* 优化滚动条（可选，美化视觉） */
@@ -104,51 +282,74 @@
             width: 6px;
         }
         #session-list::-webkit-scrollbar-thumb {
-            background: #ccc;
+            background: #2a354d;
             border-radius: 3px;
         }
 
         .session-row {
             display: grid;
-            grid-template-columns: 1fr 34px;
+            grid-template-columns: 1fr 34px 34px;
             gap: 6px;
+            animation: fadeUp 0.3s ease both;
         }
 
         .session-item {
             width: 100%;
             text-align: left;
             padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: #1c1d21;
+            color: var(--text-1);
             cursor: pointer;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
         .session-item.active {
-            border-color: #2f80ed;
-            background: #eef5ff;
+            border-color: rgba(31, 111, 235, 0.6);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 20px rgba(31, 111, 235, 0.15);
         }
 
         .delete-btn {
             width: 34px;
             height: 34px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background: #fff;
-            color: #d32f2f;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #1c1d21;
+            color: #e05a5a;
             cursor: pointer;
             font-weight: bold;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .edit-btn {
+            width: 34px;
+            height: 34px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #1c1d21;
+            color: #3766c3;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s ease, color 0.2s ease;
         }
 
         .delete-btn:hover {
-            background: #ffecec;
+            background: rgba(224, 90, 90, 0.18);
+            color: #c84141;
+        }
+
+        .edit-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #cfd6e6;
         }
 
         .empty {
-            color: #777;
+            color: var(--muted);
             font-size: 13px;
             padding: 6px 2px;
             text-align: center;
@@ -159,23 +360,47 @@
             display: flex;
             flex-direction: column;
             min-width: 0;
+            min-height: 0;
             height: 100%;
+            background: var(--panel-alt);
         }
 
         #chat-box {
-            padding: 16px;
+            padding: 20px 64px 28px;
             overflow-y: auto;
             flex: 1; /* 占据主面板剩余空间 */
-            background-color: #fafafa;
+            min-height: 0;
+            background-color: #14161a;
+            background-image: radial-gradient(circle at 20% -10%, rgba(255, 255, 255, 0.12), transparent 50%),
+                radial-gradient(circle at 95% 10%, rgba(255, 255, 255, 0.08), transparent 55%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #chat-box::-webkit-scrollbar-thumb {
+            background: rgba(200, 200, 210, 0.22);
+            border-radius: 99px;
         }
 
         .item {
             margin: 10px 0;
             line-height: 1.5;
-            padding: 10px;
-            border-radius: 4px;
+            padding: 10px 12px;
+            border-radius: var(--radius-lg);
             display: flex;
             gap: 6px;
+            animation: fadeUp 0.25s ease both;
+            box-shadow: none;
+            border: none;
+            width: 50%;
+            max-width: 720px;
+            min-width: 320px;
+            align-self: center;
         }
 
         .label {
@@ -203,64 +428,121 @@
         }
 
         .user {
-            color: #1557b0;
-            background-color: #e3f2fd;
-            align-self: flex-start;
-            max-width: 80%;
+            color: var(--text-1);
+            background: rgba(255, 255, 255, 0.08);
+            align-self: center;
+            margin-left: 0;
+            max-width: 100%;
         }
 
         .ai {
-            color: #16733b;
-            background-color: #f0f8f0;
-            align-self: flex-start;
-            max-width: 80%;
+            color: var(--text-1);
+            background: rgba(255, 255, 255, 0.05);
+            align-self: center;
+            max-width: 100%;
         }
 
         .composer {
-            border-top: 1px solid #ddd;
-            padding: 12px;
+            border-top: 1px solid var(--border);
+            padding: 14px;
             display: grid;
             grid-template-columns: 1fr 90px;
             gap: 8px;
-            background-color: #fff;
+            background-color: #17181c;
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            z-index: 2;
+        }
+
+        .layout.sidebar-hidden .sidebar-toggle {
+            left: 22px;
+        }
+
+        .layout:not(.sidebar-hidden) .sidebar-toggle {
+            opacity: 0;
+            pointer-events: none;
         }
 
         #question {
             width: 100%;
             padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
             font-size: 14px;
+            background: rgba(12, 12, 14, 0.9);
+            color: var(--text-1);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            padding-left: 16px;
+        }
+
+        #question::placeholder {
+            color: var(--muted);
+        }
+
+        #question:focus {
+            outline: none;
+            border-color: rgba(31, 111, 235, 0.6);
+            box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2);
         }
 
         #send-btn {
             padding: 10px;
             border: none;
-            border-radius: 4px;
-            background: #2f80ed;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), #cfd6e6);
             color: #fff;
             cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            box-shadow: 0 12px 24px rgba(31, 111, 235, 0.3);
         }
 
         #send-btn:disabled {
             background: #9fbce8;
             cursor: not-allowed;
+            box-shadow: none;
         }
     </style>
 </head>
 
 <body>
     <div class="layout">
+        <button class="ghost-btn sidebar-toggle" id="sidebar-toggle" type="button">☰ 会话</button>
         <!-- 侧边栏：包裹设置和会话列表 -->
         <aside class="sidebar">
             <div class="sidebar-top">
                 <strong>欢迎 {{ username }}</strong>
-                <a href="/logout" class="logout-btn">退出</a>
+                <div class="sidebar-actions">
+                    <button class="ghost-btn" id="settings-btn" type="button">设置</button>
+                    <button class="ghost-btn" id="hide-sidebar-btn" type="button">隐藏</button>
+                    <a href="/logout" class="logout-btn">退出</a>
+                </div>
             </div>
 
             <button class="new-btn" onclick="createSession()">+ 新建会话</button>
 
-            <!-- 紧凑型设置区域 -->
+            <!-- 会话列表：现在会自动填充剩余空间并独立滚动 -->
+            <div id="session-list"></div>
+
+        </aside>
+
+        <!-- 主聊天区 -->
+        <main class="chat-panel">
+            <div id="chat-box"></div>
+            <div class="composer">
+                <input type="text" id="question" placeholder="输入问题，回车发送">
+                <button id="send-btn" onclick="sendQuestion()">发送</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="settings-modal" id="settings-modal" role="dialog" aria-modal="true">
+        <div class="settings-card">
+            <div class="settings-title">对话设置</div>
             <div class="settings-panel">
                 <div class="control-item">
                     <label><input type="checkbox" id="enable-thinking"> 深度思考</label>
@@ -276,23 +558,15 @@
                     <label><input type="checkbox" id="enable-memory"> 记忆模式</label>
                 </div>
             </div>
-
-            <!-- 会话列表：现在会自动填充剩余空间并独立滚动 -->
-            <div id="session-list"></div>
-        </aside>
-
-        <!-- 主聊天区 -->
-        <main class="chat-panel">
-            <div id="chat-box"></div>
-            <div class="composer">
-                <input type="text" id="question" placeholder="输入问题，回车发送">
-                <button id="send-btn" onclick="sendQuestion()">发送</button>
+            <div class="settings-actions">
+                <button class="ghost-btn" id="close-settings-btn" type="button">关闭</button>
             </div>
-        </main>
+        </div>
     </div>
 
     <script src="/static/vendor/katex/katex.min.js"></script>
     <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
+    <script src="/static/vendor/markdown-it/dist/markdown-it.min.js"></script>
     <script>
         // 保持原有 JavaScript 逻辑不变
         let currentSessionId = null;
@@ -301,6 +575,30 @@
         const questionInput = document.getElementById("question");
         const sendBtn = document.getElementById("send-btn");
         const sessionListEl = document.getElementById("session-list");
+        const layoutEl = document.querySelector(".layout");
+        const settingsModal = document.getElementById("settings-modal");
+        const settingsBtn = document.getElementById("settings-btn");
+        const closeSettingsBtn = document.getElementById("close-settings-btn");
+        const hideSidebarBtn = document.getElementById("hide-sidebar-btn");
+        const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+
+        let md = null;
+        try {
+            if (window.markdownit) {
+                md = window.markdownit({
+                    html: false,
+                    linkify: true,
+                    breaks: true,
+                });
+            }
+        } catch (e) {
+            md = null;
+        }
+
+        function renderMarkdownToHtml(text) {
+            if (!md) return "";
+            return md.render(text || "");
+        }
 
         function renderMath(el) {
             if (!window.renderMathInElement) return;
@@ -329,6 +627,37 @@
             }
         };
 
+        function toggleSidebar(forceHidden) {
+            const shouldHide = typeof forceHidden === "boolean"
+                ? forceHidden
+                : !layoutEl.classList.contains("sidebar-hidden");
+            layoutEl.classList.toggle("sidebar-hidden", shouldHide);
+        }
+
+        function openSettings() {
+            settingsModal.classList.add("open");
+        }
+
+        function closeSettings() {
+            settingsModal.classList.remove("open");
+        }
+
+        settingsBtn.addEventListener("click", openSettings);
+        closeSettingsBtn.addEventListener("click", closeSettings);
+        settingsModal.addEventListener("click", function (e) {
+            if (e.target === settingsModal) {
+                closeSettings();
+            }
+        });
+
+        hideSidebarBtn.addEventListener("click", function () {
+            toggleSidebar(true);
+        });
+
+        sidebarToggleBtn.addEventListener("click", function () {
+            toggleSidebar();
+        });
+
         function normalizeSessionId(value) {
             if (value === null || value === undefined || value === "") {
                 return null;
@@ -346,9 +675,15 @@
             const body = div.querySelector(".message-body");
             if (!body) return;
             if (role === "assistant") {
-                body.classList.add("plain");
-                body.textContent = content || "";
-                renderMath(body);
+                if (md) {
+                    body.classList.remove("plain");
+                    body.innerHTML = renderMarkdownToHtml(content);
+                    renderMath(body);
+                } else {
+                    body.classList.add("plain");
+                    body.textContent = content || "";
+                    renderMath(body);
+                }
             } else {
                 body.textContent = content || "";
                 body.classList.add("plain");
@@ -411,6 +746,18 @@
                     renderSessionList(sessions);
                     await loadSessionMessages(sid);
                 };
+                const editBtn = document.createElement("button");
+                editBtn.className = "edit-btn";
+                editBtn.type = "button";
+                editBtn.title = "修改标题";
+                editBtn.textContent = "✎";
+                editBtn.onclick = async function (e) {
+                    e.stopPropagation();
+                    if (sending) return;
+                    const nextTitle = prompt("请输入新的会话标题（最多15字）", s.title || "");
+                    if (!nextTitle) return;
+                    await updateSessionTitle(sid, nextTitle);
+                };
                 const delBtn = document.createElement("button");
                 delBtn.className = "delete-btn";
                 delBtn.type = "button";
@@ -423,6 +770,7 @@
                     await deleteSession(sid);
                 };
                 row.appendChild(btn);
+                row.appendChild(editBtn);
                 row.appendChild(delBtn);
                 sessionListEl.appendChild(row);
             });
@@ -501,6 +849,23 @@
             }
         }
 
+        async function updateSessionTitle(sessionId, title) {
+            const sid = normalizeSessionId(sessionId);
+            if (!sid) return;
+            const trimmed = String(title || "").trim();
+            if (!trimmed) return;
+            const res = await fetch("/session/title", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sid, title: trimmed }),
+            });
+            if (!res.ok) {
+                alert("修改标题失败：" + await parseError(res));
+                return;
+            }
+            await refreshSessions(sid);
+        }
+
         async function loadSessionMessages(sessionId) {
             const sid = normalizeSessionId(sessionId);
             if (!sid) {
@@ -537,7 +902,14 @@
                 const res = await fetch("/ask", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ question: q, session_id: currentSessionId }),
+                    body: JSON.stringify({
+                        question: q,
+                        session_id: currentSessionId,
+                        enable_thinking: document.getElementById("enable-thinking").checked,
+                        thinking_strength: document.getElementById("thinking-strength").value,
+                        search: document.getElementById("enable-search").checked,
+                        memory: document.getElementById("enable-memory").checked,
+                    }),
                 });
                 if (!res.ok) {
                     setMessageContent(aiDiv, "assistant", await parseError(res));

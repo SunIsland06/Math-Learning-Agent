@@ -262,6 +262,7 @@ def ask():
     db.session.add(
         ChatMessage(session_id=session_id, role="user", content=question, seq=next_seq)
     )
+    db.session.commit()
 
     @stream_with_context
     def generate():
@@ -280,6 +281,9 @@ def ask():
                     content=answer,
                     seq=next_seq + 1,
                 )
+            )
+            db.session.add(
+                ChatRecord(username=username, question=question, answer=answer)
             )
             chat_session.updated_at = datetime.utcnow()
             db.session.commit()
