@@ -38,12 +38,21 @@ class SkillCaller:
     def __init__(self, skill_root: Optional[Path] = None) -> None:
         self.manager = SkillManager(skill_root=skill_root)
         self.manager.load_skills()
+        self.context: Dict[str, Any] = {}
 
     def build_tools(self) -> List[Dict[str, Any]]:
         return [spec.to_openai_tool() for spec in self.manager.skills.values()]
 
     def execute_tool_call(self, name: str, arguments: str) -> str:
         payload = self._parse_arguments(arguments)
+        if self.context:
+            params = payload.get("params")
+            if isinstance(params, dict):
+                for key, value in self.context.items():
+                    params.setdefault(key, value)
+                payload["params"] = params
+            else:
+                payload["params"] = {"value": params, **self.context}
         spec = self.manager.get_skill(name)
         if not spec:
             return f"Skill not found: {name}"
@@ -156,8 +165,17 @@ class SkillCaller:
         if isinstance(result, bytes):
             return "data:application/octet-stream;base64," + base64.b64encode(result).decode("ascii")
         if isinstance(result, (dict, list)):
-            return json.dumps(result, ensure_ascii=False)
+            return json.dumps(self._make_json_safe(result), ensure_ascii=False)
         return str(result)
+
+    def _make_json_safe(self, value: Any) -> Any:
+        if isinstance(value, bytes):
+            return "data:application/octet-stream;base64," + base64.b64encode(value).decode("ascii")
+        if isinstance(value, list):
+            return [self._make_json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._make_json_safe(val) for key, val in value.items()}
+        return value
 
     def _extract_expected_output(self, instruction: str) -> str:
         if not instruction:

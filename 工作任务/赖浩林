@@ -1,0 +1,19 @@
+TODO1: 将src/rag的功能接入到我的agent内
+
+TODO2: 实现web search的mcp服务, 将mcp服务接入到我的agent内, web search对关键词搜索到的前10个网页整合到提示词内
+
+TODO3: 实现个人的设置, 将设置保存到userdata/<username>/config.yml内
+        
+       设置内容:
+       # 是否开启思考过程
+       thinking: enabled
+       # 思考强度(high, max)
+       thinking_strength: high
+       #是否开启搜索功能(默认关闭)
+       search: false
+       # 是否开启长期记忆(默认关闭)
+       memory: false
+
+TODO4: 利用rag实现长期记忆功能, 将结束的会话通过向量化后保存在userdata/<username>/memory/内, 在新的会话中通过检索相关的记忆来辅助回答问题
+
+TODO5: 

@@ -1,5 +1,6 @@
 from datetime import datetime
 import hashlib
+import re
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_from_directory,
     session,
     stream_with_context,
     url_for,
@@ -26,6 +28,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
     "mysql+pymysql://root:672284Aa.@127.0.0.1:3306/flask_chat?charset=utf8mb4"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+USERDATA_ROOT = Path(__file__).resolve().parents[2] / "userdata"
 
 # 新增：是否开启大模型思考过程等设置
 ENABLE_AI_THINKING = False 
@@ -80,9 +83,106 @@ def generate_title(question: str) -> str:
         return f"new-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     return text[:15]
 
+
+def sanitize_path_part(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", value or "")
+
+
+def get_user_session_dir(username: str, session_id: str | int, ensure: bool = True) -> Path:
+    safe_user = sanitize_path_part(str(username))
+    safe_session = sanitize_path_part(str(session_id))
+    target = USERDATA_ROOT / safe_user / safe_session
+    if ensure:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def build_attachment_context(attachments, username: str, session_id: str | int) -> str:
+    if not attachments:
+        return ""
+
+    lines = []
+    base_dir = get_user_session_dir(username, session_id, ensure=False)
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        stored_name = (item.get("stored_name") or "").strip()
+        kind = (item.get("kind") or "file").strip()
+        if not stored_name:
+            continue
+        safe_name = Path(stored_name).name
+        file_path = base_dir / safe_name
+        if not file_path.exists():
+            continue
+        url = f"/userdata/{sanitize_path_part(username)}/{sanitize_path_part(str(session_id))}/{safe_name}"
+
+        if kind == "markdown" or safe_name.lower().endswith(".md"):
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                text = ""
+            if len(text) > 4000:
+                text = text[:4000] + "\n...[truncated]"
+            lines.append(f"[Markdown File] {name}\n```\n{text}\n```")
+        elif kind == "image":
+            lines.append(f"[Image] {name}\nURL: {url}")
+        else:
+            lines.append(f"[File] {name}\nURL: {url}")
+
+    if not lines:
+        return ""
+
+    return "附件如下：\n" + "\n\n".join(lines)
+
+
+def build_attachment_markdown(attachments, username: str, session_id: str | int) -> str:
+    if not attachments:
+        return ""
+
+    base_dir = get_user_session_dir(username, session_id, ensure=False)
+    lines = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip() or "attachment"
+        stored_name = (item.get("stored_name") or "").strip()
+        if not stored_name:
+            continue
+        safe_name = Path(stored_name).name
+        file_path = base_dir / safe_name
+        if not file_path.exists():
+            continue
+        url = f"/userdata/{sanitize_path_part(username)}/{sanitize_path_part(str(session_id))}/{safe_name}"
+
+        if safe_name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            lines.append(f"![{name}]({url})")
+        else:
+            lines.append(f"[{name}]({url})")
+
+    if not lines:
+        return ""
+
+    return "\n\n".join(lines)
+
  # 新增； Model 类内部有一个属性或方法可以控制是否输出思考过程（只是假设方法，需要更多补充）
-def get_ai_answer_with_messages_stream(messages, question, enable_thinking=False,thinking_strength="high", search=False, memory=False):
+def get_ai_answer_with_messages_stream(
+    messages,
+    question,
+    enable_thinking=False,
+    thinking_strength="high",
+    search=False,
+    memory=False,
+    username="",
+    session_id="",
+):
     model = Model()
+    if username and session_id:
+        output_dir = get_user_session_dir(username, session_id, ensure=True)
+        model.skill_caller.context = {
+            "output_dir": str(output_dir),
+            "output_url_prefix": f"/userdata/{sanitize_path_part(username)}/{sanitize_path_part(str(session_id))}/",
+        }
     model.messages = model.messages[:1] + messages
     # 假设 Model 类支持设置这些属性(需要补充)
     model.enable_thinking = enable_thinking
@@ -133,6 +233,14 @@ def index():
         return redirect(url_for("login"))
     history = ChatRecord.query.filter_by(username=session["username"]).all()
     return render_template("index.html", username=session["username"], history=history)
+
+
+@app.route("/userdata/<username>/<session_id>/<path:filename>")
+def userdata_files(username, session_id, filename):
+    safe_user = sanitize_path_part(username)
+    safe_session = sanitize_path_part(session_id)
+    base_dir = USERDATA_ROOT / safe_user / safe_session
+    return send_from_directory(base_dir, filename, as_attachment=False)
 
 
 @app.route("/session/new", methods=["POST"])
@@ -219,12 +327,61 @@ def session_delete():
     db.session.commit()
     return jsonify({"ok": True})
 
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+
+    session_id = request.form.get("session_id", "").strip()
+    if not session_id:
+        return jsonify({"error": "session_id_required"}), 400
+
+    row = ChatSession.query.filter_by(id=session_id, username=username).first()
+    if not row:
+        return jsonify({"error": "session_not_found"}), 404
+
+    if "file" not in request.files:
+        return jsonify({"error": "file_required"}), 400
+
+    file = request.files["file"]
+    if not file or not file.filename:
+        return jsonify({"error": "file_required"}), 400
+
+    original_name = Path(file.filename).name
+    ext = Path(original_name).suffix.lower()
+    allowed_ext = {".png", ".jpg", ".jpeg", ".webp", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".word", ".ppt"}
+    if ext not in allowed_ext:
+        return jsonify({"error": "unsupported_type"}), 400
+
+    safe_stem = sanitize_path_part(Path(original_name).stem) or "upload"
+    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    stored_name = f"{safe_stem}-{stamp}{ext}"
+    target_dir = get_user_session_dir(username, session_id, ensure=True)
+    target_path = target_dir / stored_name
+    file.save(target_path)
+
+    kind = "image" if ext in {".png", ".jpg", ".jpeg", ".webp"} else "markdown" if ext == ".md" else "document"
+    url = f"/userdata/{sanitize_path_part(username)}/{sanitize_path_part(str(session_id))}/{stored_name}"
+
+    return jsonify(
+        {
+            "name": original_name,
+            "stored_name": stored_name,
+            "url": url,
+            "kind": kind,
+            "ext": ext,
+        }
+    )
+
 #从前端传来的 JSON 数据里获取这个开关（如果前端没传，则默认使用配置文件中的全局设置），并将其传给工具函数
 @app.route("/ask", methods=["POST"])
 def ask():
     data = request.get_json() or {}
     question = data.get("question", "")
     session_id = data.get("session_id")
+    attachments = data.get("attachments") or []
     
     # 获取前端传来的开关，如果没有传，则读取 config 中的默认值
     enable_thinking = data.get("enable_thinking", app.config.get("ENABLE_AI_THINKING"))
@@ -255,12 +412,21 @@ def ask():
     )
     messages = [{"role": m.role, "content": m.content} for m in history]
 
+    attachment_context = build_attachment_context(attachments, username, session_id)
+    if attachment_context:
+        messages = messages + [{"role": "system", "content": attachment_context}]
+
+    attachment_markdown = build_attachment_markdown(attachments, username, session_id)
+    question_for_storage = question
+    if attachment_markdown:
+        question_for_storage = f"{question}\n\n{attachment_markdown}".strip()
+
     if not any(m.role == "user" for m in history):
         chat_session.title = generate_title(question)
 
     next_seq = (history[-1].seq + 1) if history else 1
     db.session.add(
-        ChatMessage(session_id=session_id, role="user", content=question, seq=next_seq)
+        ChatMessage(session_id=session_id, role="user", content=question_for_storage, seq=next_seq)
     )
     db.session.commit()
 
@@ -269,7 +435,16 @@ def ask():
         answer_chunks = []
         try:
             # 将开关传递给流式生成函数
-            for chunk in get_ai_answer_with_messages_stream(messages, question,enable_thinking, thinking_strength, search, memory): 
+            for chunk in get_ai_answer_with_messages_stream(
+                messages,
+                question,
+                enable_thinking,
+                thinking_strength,
+                search,
+                memory,
+                username=username,
+                session_id=session_id,
+            ):
                 answer_chunks.append(chunk)
                 yield chunk
 
@@ -283,7 +458,7 @@ def ask():
                 )
             )
             db.session.add(
-                ChatRecord(username=username, question=question, answer=answer)
+                ChatRecord(username=username, question=question_for_storage, answer=answer)
             )
             chat_session.updated_at = datetime.utcnow()
             db.session.commit()
