@@ -9,3 +9,9 @@ config/myglobal.yml
 
 # 忽略所有的_pycache_文件夹
 src/*/__pycache__/**
+
+# 忽略所有的.log文件
+logs/**
+
+# 忽略向量数据库文件夹中的所有内容
+src/rag/db/**
