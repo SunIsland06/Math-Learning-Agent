@@ -1,19 +1,19 @@
-TODO1: 将src/rag的功能接入到我的agent内
+TODO1: 如果用户开启了web search功能, 让agent在回答数学问题的必要时候, 调用网页搜索工具, 搜索相关的数学知识, 并且在回答中引用搜索结果, 在agent的回答中, 引用搜索结果的来源链接, 以便用户可以点击链接查看详细内容
 
-TODO2: 实现web search的mcp服务, 将mcp服务接入到我的agent内, web search对关键词搜索到的前10个网页整合到提示词内
+TODO2: 如果用户开启memory功能, 在agent的回答中调用长期记忆工具, 将用户的提问和agent的回答存储为长期记忆, 以便agent在未来的对话中可以回忆起这些信息, 提升连续对话的质量和个性化程度
 
-TODO3: 实现个人的设置, 将设置保存到userdata/<username>/config.yml内
-        
-       设置内容:
-       # 是否开启思考过程
-       thinking: enabled
-       # 思考强度(high, max)
-       thinking_strength: high
-       #是否开启搜索功能(默认关闭)
-       search: false
-       # 是否开启长期记忆(默认关闭)
-       memory: false
+TODO3: 在agent的解答数学题目的必要时刻自行调用geometry工具, 进行几何图形的绘制, 以辅助解题, 并且在agent的回答中展示这些几何图形, 以帮助用户更好地理解解题过程
 
-TODO4: 利用rag实现长期记忆功能, 将结束的会话通过向量化后保存在userdata/<username>/memory/内, 在新的会话中通过检索相关的记忆来辅助回答问题
+TODO4: 在agent的解答数学题目的必要时刻自行调用code_execution工具, 进行代码的编写和执行, 以辅助解题, 并且在agent的回答中展示这些代码和执行结果, 以帮助用户更好地理解解题过程
 
-TODO5: 
+TODO5: 在agent的解答数学题目的必要时刻自行调用wolfram_alpha工具, 进行复杂数学计算的查询, 以辅助解题, 并且在agent的回答中展示这些查询结果, 以帮助用户更好地理解解题过程
+
+TODO6: 在agent的解答数学题目的必要时刻自行调用latex_render工具, 进行数学公式的渲染, 以辅助解题, 并且在agent的回答中展示这些渲染结果, 以帮助用户更好地理解解题过程
+
+TODO7: 在agent的解答数学题目的必要时刻自行调用graph_plotting工具, 进行函数图像的绘制, 以辅助解题, 并且在agent的回答中展示这些函数图像, 以帮助用户更好地理解解题过程
+
+TODO8: 在agent的解答数学题目的必要时刻自行调用symbolic_computation工具, 进行符号计算的处理, 以辅助解题, 并且在agent的回答中展示这些符号计算的结果, 以帮助用户更好地理解解题过程
+
+TODO9: 在agent的解答数学题目的必要时刻自行调用step_by_step_solver工具, 进行分步解题的展示, 以辅助解题, 并且在agent的回答中展示这些分步解题的过程, 以帮助用户更好地理解解题过程
+
+TODO10: 美化web界面的布局, 使用Jerbrain Mono Font, 让网页设计布局更加合理, 增加暗色主题和亮色主题的切换功能, 以提升用户的使用体验, 并且让界面看起来更加专业和现代化

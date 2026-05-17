@@ -4,7 +4,13 @@ MCP Web Search Server —— 提供 web_search 工具的本地 MCP 服务。
 通过 stdio 传输，遵循 Model Context Protocol 标准。
 """
 import re
+import sys
 from urllib.parse import urlparse
+
+# Windows 下强制 UTF-8 编码，避免 GBK 编码特殊字符（如 ²）时崩溃
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from ddgs import DDGS
 from mcp.server.fastmcp import FastMCP
@@ -75,9 +81,9 @@ async def web_search(query: str) -> str:
     query = query.strip()
     results_parts = [f"【联网搜索结果】关键词：「{query}」\n"]
 
-    # 1) DuckDuckGo 搜索
+    # 1) DuckDuckGo 搜索（auto 模式会尝试所有可用引擎）
     try:
-        with DDGS() as ddgs:
+        with DDGS(timeout=15) as ddgs:
             search_results = list(ddgs.text(query, max_results=10))
     except Exception as e:
         return f"搜索失败：{e}"

@@ -13,6 +13,7 @@ from config.globalConfig import get_global_config
 from skill.skillCall import SkillCaller, merge_tool_call_delta
 from rag.integration import retrieve_context
 from mcp_services.mcp_manager import get_mcp_manager
+from memory.memory_manager import build_memory_message
 
 
 class Model:
@@ -39,24 +40,40 @@ class Model:
         self.system_prompt = system_prompt or load_system_prompt()
         self.messages = [{"role": "system", "content": self.system_prompt}]
         self.skill_caller = SkillCaller()
+        self.enable_thinking = False
+        self.thinking_strength = "high"
+        self.enable_search = False
+        self.enable_memory = False
+        self.memory_username = ""
+        self._web_refs: List[Dict[str, str]] = []  # 网页搜索引用
     
     def stream_chat_chunks(self, prompt, temperature=0.7, extra_params=None):
         """Yield model output by content chunk."""
         # 记录用户输入
         self.messages.append({"role": "user", "content": prompt})
 
-        # 构建 RAG 片段消息（如有）
+        # 构建前置消息：长期记忆 + RAG 知识库
+        pre_messages = []
+        if self.enable_memory and self.memory_username:
+            memory_message = build_memory_message(self.memory_username, prompt)
+            if memory_message:
+                pre_messages.append(memory_message)
+
         rag_message = self._build_rag_message(prompt)
         if rag_message:
-            payload_messages = self.messages[:-1] + [rag_message, self.messages[-1]]
+            pre_messages.append(rag_message)
+
+        if pre_messages:
+            payload_messages = self.messages[:-1] + pre_messages + [self.messages[-1]]
         else:
             payload_messages = self.messages
 
-        # 构建工具清单（技能 + MCP）
+        # 构建工具清单（技能 + MCP，MCP 仅在开启搜索时注入）
         tools = self.skill_caller.build_tools()
-        mcp_manager = get_mcp_manager()
-        if mcp_manager.is_ready():
-            tools = tools + mcp_manager.build_tools()
+        if self.enable_search:
+            mcp_manager = get_mcp_manager()
+            if mcp_manager.is_ready():
+                tools = tools + mcp_manager.build_tools()
         payload = {
             "model": self.model_name,
             "messages": payload_messages,
@@ -137,6 +154,10 @@ class Model:
                 tool_messages = self._run_tool_calls(tool_calls)
                 self.messages.extend(tool_messages)
                 yield from self._stream_followup(headers, temperature, extra_params, rag_message)
+                # 输出网页搜索引用
+                ref_section = self._build_reference_section()
+                if ref_section:
+                    yield ref_section
                 return
 
             # 记录最终回答到消息历史
@@ -162,7 +183,7 @@ class Model:
         self.messages.append(message)
 
     def _run_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        # 逐个执行工具调用，MCP 工具路由到 MCP 管理器
+        # 逐个执行工具调用，MCP 工具路由到 MCP 管理器，并提取引用
         tool_messages: List[Dict[str, Any]] = []
         mcp_manager = get_mcp_manager()
         for call in tool_calls:
@@ -174,11 +195,48 @@ class Model:
                 t["function"]["name"] == name for t in mcp_manager.build_tools()
             ):
                 result = mcp_manager.execute_tool(name, arguments)
+                # 提取网页搜索引用（用于回答底部展示）
+                if name == "web_search":
+                    self._extract_web_refs(result)
             else:
                 result = self.skill_caller.execute_tool_call(name, arguments)
             tool_messages.append(self.skill_caller.build_tool_message(call.get("id", ""), name, result))
 
         return tool_messages
+
+    def _extract_web_refs(self, result: str) -> None:
+        """从 web_search 结果中提取 URL 引用。"""
+        import re
+        self._web_refs = []
+        # 匹配 "N. title\n   URL: http..." 格式
+        pattern = re.compile(r"^\d+\.\s+(.+?)\n\s+URL:\s+(https?://\S+)", re.MULTILINE)
+        for match in pattern.finditer(result):
+            title = match.group(1).strip()
+            url = match.group(2).strip()
+            if url not in {r["url"] for r in self._web_refs}:
+                self._web_refs.append({"title": title[:100], "url": url})
+
+    def _build_reference_section(self) -> str:
+        """构建 DeepSeek 风格的参考来源区域（Markdown 格式）。"""
+        if not self._web_refs:
+            return ""
+        lines = [
+            "",
+            "---",
+            "",
+            "**参考来源：**",
+            "",
+        ]
+        for i, ref in enumerate(self._web_refs, 1):
+            # 截取域名作为简短显示
+            from urllib.parse import urlparse
+            try:
+                domain = urlparse(ref["url"]).netloc
+            except Exception:
+                domain = ref["url"]
+            lines.append(f"{i}. [{ref['title']}]({ref['url']}) — `{domain}`")
+        lines.append("")
+        return "\n".join(lines)
 
     def _stream_followup(self, headers, temperature, extra_params, rag_message=None):
         # 工具调用完成后的二次流式请求
@@ -188,9 +246,10 @@ class Model:
             payload_messages = self.messages[:-1] + [rag_message, self.messages[-1]]
 
         followup_tools = self.skill_caller.build_tools()
-        mcp_manager = get_mcp_manager()
-        if mcp_manager.is_ready():
-            followup_tools = followup_tools + mcp_manager.build_tools()
+        if self.enable_search:
+            mcp_manager = get_mcp_manager()
+            if mcp_manager.is_ready():
+                followup_tools = followup_tools + mcp_manager.build_tools()
 
         payload = {
             "model": self.model_name,

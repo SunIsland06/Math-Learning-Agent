@@ -22,6 +22,8 @@ from flask_sqlalchemy import SQLAlchemy
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from model.model import Model
 from mcp_services.mcp_manager import get_mcp_manager
+from utils.user_config import load_config, save_config
+from memory.memory_manager import store_memory
 
 app = Flask(__name__)
 app.secret_key = "123456789"
@@ -32,12 +34,6 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 USERDATA_ROOT = Path(__file__).resolve().parents[2] / "userdata"
-
-# 新增：是否开启大模型思考过程等设置
-ENABLE_AI_THINKING = False 
-THINKING_STRENGTH = "high"  # 默认为 high，可选 high / max
-ENABLE_SEARCH = False
-ENABLE_MEMORY = False
 
 db = SQLAlchemy(app)
 
@@ -198,11 +194,11 @@ def get_ai_answer_with_messages_stream(
             "output_url_prefix": f"/userdata/{sanitize_path_part(username)}/{sanitize_path_part(str(session_id))}/",
         }
     model.messages = model.messages[:1] + messages
-    # 假设 Model 类支持设置这些属性(需要补充)
     model.enable_thinking = enable_thinking
     model.thinking_strength = thinking_strength
     model.enable_search = search
     model.enable_memory = memory
+    model.memory_username = username
     yield from model.stream_chat_chunks(question)
 
 
@@ -245,6 +241,26 @@ def logout():
     # 退出登录
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/settings/load", methods=["GET"])
+def settings_load():
+    """加载当前用户的个人设置。"""
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+    return jsonify(load_config(username))
+
+
+@app.route("/settings/save", methods=["POST"])
+def settings_save():
+    """保存当前用户的个人设置。"""
+    username = session.get("username", "")
+    if not username:
+        return jsonify({"error": "not_login"}), 401
+    data = request.get_json() or {}
+    save_config(username, data)
+    return jsonify({"ok": True})
 
 
 @app.route("/")
@@ -412,15 +428,16 @@ def ask():
     session_id = data.get("session_id")
     attachments = data.get("attachments") or []
     
-    # 获取前端传来的开关，如果没有传，则读取 config 中的默认值
-    enable_thinking = data.get("enable_thinking", app.config.get("ENABLE_AI_THINKING"))
-    thinking_strength = data.get("thinking_strength", app.config.get("THINKING_STRENGTH"))
-    search = data.get("search", app.config.get("ENABLE_SEARCH"))
-    memory = data.get("memory", app.config.get("ENABLE_MEMORY"))
-    
     username = session.get("username", "")
     if not username:
         return jsonify({"error": "not_login"}), 401
+
+    # 获取前端传来的开关，如果没有传，则读取用户个人 config.yml
+    user_cfg = load_config(username)
+    enable_thinking = data.get("enable_thinking", user_cfg.get("thinking") == "enabled")
+    thinking_strength = data.get("thinking_strength", user_cfg.get("thinking_strength", "high"))
+    search = data.get("search", user_cfg.get("search", False))
+    memory = data.get("memory", user_cfg.get("memory", False))
 
     if session_id:
         chat_session = ChatSession.query.filter_by(
@@ -492,6 +509,11 @@ def ask():
             )
             chat_session.updated_at = datetime.now(timezone.utc)
             db.session.commit()
+
+            # 长期记忆：记忆开启时，存储问答对
+            if memory and answer:
+                store_memory(username, question_for_storage, answer,
+                             session_id=str(session_id))
         except BaseException:
             db.session.rollback()
             raise
