@@ -541,50 +541,42 @@
         .message-body .katex-display { margin: 10px 0; }
         .message-body .katex { font-size: 1.05em; }
 
-        /* ===== 思考过程折叠块 ===== */
+        /* ===== 思考过程折叠块（DeepSeek 风格） ===== */
         .thinking-block {
-            margin-bottom: 12px;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            background: var(--panel-alt);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            background: rgba(128, 128, 128, 0.1);
             overflow: hidden;
-            font-size: 0.88em;
+            font-size: 0.84em;
+            border: 1px solid rgba(128, 128, 128, 0.15);
         }
         .thinking-block summary {
-            padding: 8px 14px;
+            padding: 6px 12px;
             cursor: pointer;
-            color: var(--muted);
+            color: rgba(200, 200, 210, 0.7);
             font-weight: 500;
             font-size: 0.85em;
-            letter-spacing: 0.3px;
             user-select: none;
             list-style: none;
             display: flex;
             align-items: center;
             gap: 6px;
-            border-bottom: 1px solid transparent;
-            transition: color 0.2s ease, border-color 0.2s ease;
+            transition: color 0.2s ease;
         }
-        .thinking-block summary:hover {
-            color: var(--text-2);
-        }
-        .thinking-block[open] summary {
-            border-bottom-color: var(--border);
-            color: var(--accent);
-        }
-        .thinking-block summary::before {
-            content: '💭';
-            font-size: 0.9em;
-        }
-        .thinking-block summary::marker { display: none; }
+        .thinking-block summary:hover { color: rgba(220, 220, 230, 0.9); }
+        .thinking-block[open] summary { color: rgba(200, 200, 220, 0.85); }
+        .thinking-block summary::before { content: '思考过程'; }
+        .thinking-block summary::after { content: '▾'; font-size: 0.7em; margin-left: auto; transition: transform 0.2s; }
+        .thinking-block[open] summary::after { transform: rotate(180deg); }
         .thinking-content {
-            padding: 10px 14px;
-            color: var(--muted);
+            padding: 8px 14px 12px;
+            color: rgba(190, 190, 205, 0.75);
             white-space: pre-wrap;
-            line-height: 1.6;
-            max-height: 360px;
+            line-height: 1.55;
+            max-height: 300px;
             overflow-y: auto;
-            font-family: var(--font-sans);
+            font-size: 0.94em;
+            border-top: 1px solid rgba(128, 128, 128, 0.08);
         }
 
         .message-body .mermaid {
@@ -945,6 +937,10 @@
 
         function sanitizeContent(text) {
             return (text || "").replace(/\{\{\s*(\/userdata\/[^}]+)\s*\}\}/g, "$1");
+        }
+
+        function escapeHtml(text) {
+            return (text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         }
 
         function normalizeMathDelimiters(text) {

@@ -1,252 +1,187 @@
 """
-调试日志模块 —— 当 config/global.yml 中 DEBUG=true 时启用。
+调试日志模块 —— 当 config/global.yml 中 debug: true 时启用。
 
-记录的关键信息：
-- 提示词输入输出（截断显示）
-- 技能调用情况（名称、参数、结果摘要）
+以可读文本格式记录程序执行过程的关键信息：
+- LLM 提示词/响应的摘要
+- Skill 调用详情（参数/返回值）
 - MCP 工具调用
-- 知识库引用（来源、匹配分数）
+- RAG 知识库引用
 - 长期记忆读取
 
-使用方式：
-    from utils.debug_logger import debug_log, is_debug_enabled
-    if is_debug_enabled():
-        debug_log("tag", {"key": "value"})
+日志文件：logs/debug/debug-YYYYMMDD.log
 """
 
-import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 _DEBUG_ENABLED = None
-_LOG_DIR = None
+_LOG_FILE = None
 
 
 def is_debug_enabled() -> bool:
-    """检查是否开启了 DEBUG 模式（从 global.yml 读取）。"""
     global _DEBUG_ENABLED
     if _DEBUG_ENABLED is not None:
         return _DEBUG_ENABLED
-
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
         from config.globalConfig import get_global_config
-        cfg = get_global_config()
-        _DEBUG_ENABLED = getattr(cfg, "debug", False) or False
+        _DEBUG_ENABLED = bool(getattr(get_global_config(), "debug", False))
     except Exception:
         _DEBUG_ENABLED = False
     return _DEBUG_ENABLED
 
 
-def _get_log_dir() -> Path:
-    """获取调试日志目录。"""
-    global _LOG_DIR
-    if _LOG_DIR is not None:
-        return _LOG_DIR
-    _LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "debug"
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
-    return _LOG_DIR
+def _get_log_path() -> Path:
+    global _LOG_FILE
+    if _LOG_FILE is not None:
+        return _LOG_FILE
+    log_dir = Path(__file__).resolve().parents[2] / "logs" / "debug"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    _LOG_FILE = log_dir / f"debug-{datetime.utcnow().strftime('%Y%m%d')}.log"
+    return _LOG_FILE
 
 
-def debug_log(tag: str, data: Dict[str, Any], max_str_len: int = 2000) -> None:
-    """写入一条调试日志。
-
-    Args:
-        tag: 日志标签（如 "prompt_in", "skill_call", "rag_retrieve"）
-        data: 要记录的键值对数据
-        max_str_len: 字符串值的最大长度（超出截断）
-    """
+def _write(tag: str, lines: List[str]) -> None:
+    """写入带时间戳和标签的文本行。"""
     if not is_debug_enabled():
         return
-
-    log_file = _get_log_dir() / f"debug-{datetime.utcnow().strftime('%Y%m%d')}.log"
-
-    # 截断过长的字符串值
-    safe_data = {}
-    for k, v in data.items():
-        if isinstance(v, str) and len(v) > max_str_len:
-            safe_data[k] = v[:max_str_len] + f"... [truncated, total {len(v)} chars]"
-        elif isinstance(v, dict):
-            safe_data[k] = _truncate_dict(v, max_str_len)
-        elif isinstance(v, list):
-            safe_data[k] = _truncate_list(v, max_str_len)
-        else:
-            safe_data[k] = v
-
-    record = {
-        "time": datetime.utcnow().isoformat() + "Z",
-        "tag": tag,
-        "data": safe_data,
-    }
-
+    ts = datetime.utcnow().strftime("%H:%M:%S.%f")[:-3]
     try:
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with open(_get_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*70}\n")
+            f.write(f"  [{ts}] {tag}\n")
+            f.write(f"{'-'*70}\n")
+            for line in lines:
+                f.write(f"  {line}\n")
+            f.write(f"{'='*70}\n")
     except Exception:
         pass
 
 
-def _truncate_dict(d: dict, max_len: int) -> dict:
-    """递归截断字典中的长字符串。"""
-    result = {}
-    for k, v in d.items():
-        if isinstance(v, str) and len(v) > max_len:
-            result[k] = v[:max_len] + f"... [{len(v)} chars]"
-        elif isinstance(v, dict):
-            result[k] = _truncate_dict(v, max_len)
-        elif isinstance(v, list):
-            result[k] = _truncate_list(v, max_len)
-        else:
-            result[k] = v
-    return result
+# ============================================================
+# 公共 API
+# ============================================================
 
-
-def _truncate_list(lst: list, max_len: int) -> list:
-    """递归截断列表中的长字符串。"""
-    result = []
-    for item in lst:
-        if isinstance(item, str) and len(item) > max_len:
-            result.append(item[:max_len] + f"... [{len(item)} chars]")
-        elif isinstance(item, dict):
-            result.append(_truncate_dict(item, max_len))
-        elif isinstance(item, list):
-            result.append(_truncate_list(item, max_len))
-        else:
-            result.append(item)
-    return result
+def debug_log(tag: str, message: str) -> None:
+    """写入单条短日志。"""
+    if not is_debug_enabled():
+        return
+    ts = datetime.utcnow().strftime("%H:%M:%S.%f")[:-3]
+    try:
+        with open(_get_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"  [{ts}] [{tag}] {message}\n")
+    except Exception:
+        pass
 
 
 def log_prompt(prompt_type: str, messages: list, extra: Optional[Dict] = None) -> None:
-    """记录 LLM 提示词输入。
-
-    Args:
-        prompt_type: "initial" 或 "followup"
-        messages: 发送给 LLM 的消息列表
-        extra: 额外参数（temperature, tools 等）
-    """
+    """记录发送给 LLM 的提示词摘要。"""
     if not is_debug_enabled():
         return
+    lines = [f"类型: {prompt_type}", f"消息总数: {len(messages)}"]
+    if extra:
+        if extra.get("temperature"):
+            lines.append(f"温度: {extra['temperature']}")
+        if extra.get("tools_count"):
+            lines.append(f"工具数: {extra['tools_count']}")
+        if extra.get("enable_search"):
+            lines.append("搜索: 已开启")
+        if extra.get("enable_memory"):
+            lines.append("记忆: 已开启")
 
-    summary = []
-    for m in messages[-8:]:  # 仅记录最近8条
+    lines.append("")
+    lines.append("--- 消息摘要 (最近8条) ---")
+    for i, m in enumerate(messages[-8:]):
         role = m.get("role", "?")
         content = m.get("content", "")
         if isinstance(content, list):
-            content = "[multimodal: " + str(len(content)) + " parts]"
-        elif isinstance(content, str) and len(content) > 300:
-            content = content[:300] + "..."
-        tool_calls = m.get("tool_calls", [])
-        tc_summary = []
-        for tc in tool_calls:
-            fn = tc.get("function", {})
-            tc_summary.append({
-                "name": fn.get("name", "?"),
-                "args_len": len(fn.get("arguments", "")),
-            })
-        entry = {"role": role}
-        if content:
-            entry["content_preview"] = content
-        if tc_summary:
-            entry["tool_calls"] = tc_summary
-        summary.append(entry)
-
-    data = {
-        "prompt_type": prompt_type,
-        "total_messages": len(messages),
-        "messages_summary": summary,
-    }
-    if extra:
-        data["extra"] = {k: v for k, v in extra.items() if k != "messages"}
-    debug_log("prompt_in", data)
+            parts = [p.get("type", "?") for p in content]
+            content = f"[多模态: {', '.join(parts)}]"
+        elif isinstance(content, str):
+            content = content[:200].replace("\n", "\\n")
+        tc_list = m.get("tool_calls", [])
+        if tc_list:
+            tc_names = [tc.get("function", {}).get("name", "?") for tc in tc_list]
+            content += f" [工具调用: {', '.join(tc_names)}]"
+        lines.append(f"  [{i+1}] {role}: {content}")
+    _write("LLM 请求", lines)
 
 
 def log_response(prompt_type: str, content: str, reasoning_len: int = 0) -> None:
-    """记录 LLM 响应输出。
-
-    Args:
-        prompt_type: "initial" 或 "followup"
-        content: LLM 返回的文本内容
-        reasoning_len: 思考内容长度
-    """
+    """记录 LLM 响应。"""
     if not is_debug_enabled():
         return
-    preview = content[:500] + "..." if len(content) > 500 else content
-    debug_log("llm_response", {
-        "prompt_type": prompt_type,
-        "content_length": len(content),
-        "content_preview": preview,
-        "reasoning_length": reasoning_len,
-    })
+    preview = content[:500].replace("\n", "\\n")
+    lines = [
+        f"类型: {prompt_type}",
+        f"正文长度: {len(content)} 字符",
+        f"推理长度: {reasoning_len} 字符",
+        f"正文预览: {preview}...",
+    ]
+    _write("LLM 响应", lines)
 
 
-def log_skill_call(name: str, args: str, result: str) -> None:
-    """记录技能调用。
-
-    Args:
-        name: 技能名称
-        args: 调用参数
-        result: 返回结果
-    """
+def log_skill_call(name: str, arguments: str, result: str) -> None:
+    """记录技能调用详情。"""
     if not is_debug_enabled():
         return
-    debug_log("skill_call", {
-        "skill_name": name,
-        "args_length": len(args),
-        "args_preview": args[:300] if len(args) > 300 else args,
-        "result_length": len(result),
-        "result_preview": result[:300] if len(result) > 300 else result,
-    })
-
-
-def log_rag_retrieve(query: str, sources: list, context_len: int) -> None:
-    """记录 RAG 知识库检索。
-
-    Args:
-        query: 检索查询
-        sources: 匹配来源列表
-        context_len: 检索到的上下文字符数
-    """
-    if not is_debug_enabled():
-        return
-    debug_log("rag_retrieve", {
-        "query_preview": query[:200] if len(query) > 200 else query,
-        "sources": sources[:5],
-        "context_length": context_len,
-    })
-
-
-def log_memory_read(username: str, query: str, memory_count: int) -> None:
-    """记录长期记忆读取。
-
-    Args:
-        username: 用户名
-        query: 查询文本
-        memory_count: 检索到的记忆数量
-    """
-    if not is_debug_enabled():
-        return
-    debug_log("memory_read", {
-        "username": username,
-        "query_preview": query[:200] if len(query) > 200 else query,
-        "memories_found": memory_count,
-    })
+    args_preview = arguments[:500].replace("\n", "\\n")
+    result_preview = result[:500].replace("\n", "\\n")
+    lines = [
+        f"技能名称: {name}",
+        f"参数长度: {len(arguments)} 字符",
+        f"参数内容: {args_preview}",
+        f"---",
+        f"结果长度: {len(result)} 字符",
+        f"结果预览: {result_preview}",
+    ]
+    _write(f"Skill 调用 → {name}", lines)
 
 
 def log_mcp_call(tool_name: str, args: str, result_len: int) -> None:
-    """记录 MCP 工具调用。
-
-    Args:
-        tool_name: 工具名称
-        args: 调用参数
-        result_len: 结果长度
-    """
+    """记录 MCP 工具调用。"""
     if not is_debug_enabled():
         return
-    debug_log("mcp_call", {
-        "tool_name": tool_name,
-        "args_preview": args[:200] if len(args) > 200 else args,
-        "result_length": result_len,
-    })
+    lines = [
+        f"MCP 工具: {tool_name}",
+        f"参数: {args[:300]}",
+        f"结果长度: {result_len} 字符",
+    ]
+    _write(f"MCP 调用 → {tool_name}", lines)
+
+
+def log_rag_retrieve(query: str, sources: list, context_len: int) -> None:
+    """记录 RAG 知识库检索。"""
+    if not is_debug_enabled():
+        return
+    lines = [
+        f"检索查询: {query[:200]}",
+        f"匹配来源数: {len(sources)}",
+    ]
+    for i, s in enumerate(sources, 1):
+        lines.append(f"  来源{i}: {s}")
+    lines.append(f"上下文总长: {context_len} 字符")
+    if context_len > 0:
+        lines.append("→ RAG 上下文已注入到 LLM 请求")
+    else:
+        lines.append("→ 未检索到相关知识库内容")
+    _write("RAG 知识库检索", lines)
+
+
+def log_memory_read(username: str, query: str, memory_count: int) -> None:
+    """记录长期记忆读取。"""
+    if not is_debug_enabled():
+        return
+    lines = [
+        f"用户: {username}",
+        f"查询: {query[:200]}",
+        f"匹配记忆数: {memory_count}",
+    ]
+    if memory_count > 0:
+        lines.append("→ 记忆上下文已注入到 LLM 请求")
+    else:
+        lines.append("→ 无相关历史记忆")
+    _write("长期记忆读取", lines)
