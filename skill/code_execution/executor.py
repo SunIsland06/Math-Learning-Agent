@@ -1,13 +1,21 @@
 """
-Code Execution Skill —— 安全沙箱执行 Python 代码，用于数学计算辅助。
+代码执行技能 —— 在受限沙箱中执行 Python 代码，用于数学数值计算。
+
+安全措施：
+1. 白名单内置函数 —— 仅暴露安全的 builtins（无 open/eval/exec 等）
+2. 白名单模块 —— 仅允许 math/numpy/statistics 等数学相关库
+3. stdout 捕获 —— 所有输出通过 io.StringIO 捕获并返回
+
+入口函数：skill_entry(payload) → str
 """
+
 import io
 import sys
 import traceback
 import numpy as np
 
 
-# 允许的安全内置函数和模块
+# 安全内置函数白名单 —— 排除文件操作、代码执行等危险函数
 _SAFE_BUILTINS = {
     "abs": abs, "all": all, "any": any, "bin": bin, "bool": bool,
     "chr": chr, "complex": complex, "dict": dict, "divmod": divmod,
@@ -23,6 +31,7 @@ _SAFE_BUILTINS = {
     "__import__": __import__,
 }
 
+# 安全模块白名单 —— 仅数学计算和数据处理相关
 _SAFE_MODULES = {
     "math": __import__("math"),
     "numpy": np,
@@ -40,7 +49,19 @@ _SAFE_MODULES = {
 
 
 def skill_entry(payload: dict) -> str:
-    """执行 Python 代码并返回捕获的输出。"""
+    """在沙箱中执行 Python 代码并返回 stdout 输出。
+
+    Args:
+        payload: {
+            "input": str (Python 代码),
+            "params": {
+                "code": str,  # 要执行的 Python 代码
+            }
+        }
+
+    Returns:
+        代码执行结果（含 stdout 输出或错误堆栈）。
+    """
     payload = payload or {}
     params = payload.get("params") or {}
     code = params.get("code") or payload.get("input", "")
@@ -57,14 +78,13 @@ def skill_entry(payload: dict) -> str:
         safe_globals = {"__builtins__": _SAFE_BUILTINS}
         safe_globals.update(_SAFE_MODULES)
 
-        # 执行代码
         exec(code.strip(), safe_globals, {})
         output = sys.stdout.getvalue()
 
         if output.strip():
             return f"【代码执行结果】\n```\n{output.strip()}\n```"
         return "【代码执行完成】代码已执行，无标准输出。"
-    except Exception as e:
+    except Exception:
         tb = traceback.format_exc()
         return f"【代码执行错误】\n```\n{tb}\n```"
     finally:

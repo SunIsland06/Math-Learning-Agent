@@ -1,3 +1,17 @@
+"""
+RAG 集成检索模块 —— 提供面向教学场景的增强版向量检索。
+
+检索策略（混合评分）：
+1. 向量相似度（余弦距离，权重 60%）
+2. 词汇匹配度（关键词命中，权重 40%）
+3. 学科加权（根据问题关键词推测学科，相关学科加权 1.0~1.5）
+4. 无词汇匹配时额外惩罚 0.85x
+
+使用方式：
+    from rag.integration import retrieve_context
+    context, sources = retrieve_context("什么是导数", top_k=3)
+"""
+
 import chromadb
 import requests
 import os
@@ -10,7 +24,10 @@ COLLECTION_NAME = "math_textbooks_v2"
 OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embeddings"
 EMBED_MODEL = "nomic-embed-text"
 
-# ---- 学科关键词映射 ----
+# ============================================================
+# 学科关键词映射 —— 用于问题分类和学科加权
+# ============================================================
+
 SUBJECT_KEYWORDS = {
     "高等数学": [
         "极限", "导数", "微分", "积分", "级数", "偏导", "重积分", "曲线积分",
@@ -37,10 +54,18 @@ SUBJECT_KEYWORDS = {
     ],
 }
 
-# 文件名 → 学科映射
+# 文件名 → 学科映射（启动时自动构建）
 FILE_SUBJECT_MAP = {}
 
+
 def _build_file_subject_map():
+    """根据 textbook/ 目录下的文件名自动构建学科映射。
+
+    规则：
+    - gaoshu* → 高等数学
+    - discretemath* → 离散数学
+    - linearalgebra* → 线性代数
+    """
     global FILE_SUBJECT_MAP
     textbook_dir = os.path.join(BASE_DIR, "textbook")
     if not os.path.isdir(textbook_dir):
@@ -58,12 +83,18 @@ def _build_file_subject_map():
         else:
             FILE_SUBJECT_MAP[fname] = "未知"
 
+
 _build_file_subject_map()
 
-# ---- ChromaDB 连接缓存 ----
+# ============================================================
+# ChromaDB 连接管理
+# ============================================================
+
 _collection = None
 
+
 def _get_collection():
+    """获取 ChromaDB 集合（延迟初始化 + 连接缓存）。"""
     global _collection
     if _collection is not None:
         return _collection
@@ -72,8 +103,19 @@ def _get_collection():
     return _collection
 
 
+# ============================================================
+# 查询分析与向量化
+# ============================================================
+
 def _classify_query(query):
-    """根据关键词匹配，返回 [(学科, 匹配数), ...] 降序排列。"""
+    """根据关键词匹配推测问题所属学科。
+
+    Args:
+        query: 用户问题文本
+
+    Returns:
+        [(学科名, 匹配关键词数), ...] 按匹配数降序排列。
+    """
     scores = {}
     query_lower = query.lower()
     for subject, keywords in SUBJECT_KEYWORDS.items():
@@ -89,28 +131,53 @@ def _classify_query(query):
 
 
 def get_embedding(text):
+    """调用 Ollama API 获取文本的向量表示。
+
+    Args:
+        text: 待向量化的文本
+
+    Returns:
+        768 维浮点数向量列表。
+    """
     res = requests.post(
         url=OLLAMA_EMBED_URL,
         json={"model": EMBED_MODEL, "prompt": text},
-        timeout=20
+        timeout=20,
     )
     res.raise_for_status()
     return res.json()["embedding"]
 
 
+# ============================================================
+# 词汇匹配辅助
+# ============================================================
+
 def _extract_terms(text):
+    """从文本中提取检索词条。
+
+    英文单词整体保留，中文按单字和双字 bigram 拆解，
+    以支持向量检索外的词汇级别匹配。
+
+    Args:
+        text: 输入文本
+
+    Returns:
+        去重后的词条列表。
+    """
     terms = re.findall(r"[A-Za-z0-9]+|[一-鿿]+", text)
     expanded = []
     for term in terms:
         if re.match(r"[一-鿿]+", term) and len(term) > 1:
             expanded.append(term)
-            expanded.extend([term[i:i+2] for i in range(len(term) - 1)])
+            # 生成双字 bigram 用于部分匹配
+            expanded.extend([term[i:i + 2] for i in range(len(term) - 1)])
         else:
             expanded.append(term.lower())
     return list(set(expanded))
 
 
 def _strip_heading_prefix(doc):
+    """去除文档开头的【章节】前缀标记。"""
     if not doc:
         return ""
     if doc.startswith("【章节】"):
@@ -120,6 +187,20 @@ def _strip_heading_prefix(doc):
 
 
 def _lexical_score(query, doc, heading_path):
+    """计算查询与文档之间的词汇匹配得分。
+
+    英文词汇在正文中每次命中计 0.5 分，
+    中文词汇每次命中计 1.0 分，
+    标题命中额外加权 0.6x（中文）/ 0.3x（英文）。
+
+    Args:
+        query: 查询文本
+        doc: 文档正文
+        heading_path: 章节路径
+
+    Returns:
+        词汇匹配得分（浮点数）。
+    """
     terms = _extract_terms(query)
     doc_body = _strip_heading_prefix(doc)
     doc_text = (doc_body or "").lower()
@@ -141,41 +222,66 @@ def _lexical_score(query, doc, heading_path):
 
 
 def _subject_of_meta(meta):
-    """从元数据中获取文件对应的学科。"""
+    """从元数据中获取文档对应的学科分类。
+
+    Args:
+        meta: ChromaDB 元数据字典
+
+    Returns:
+        学科名称字符串。
+    """
     fname = (meta or {}).get("file", "")
     return FILE_SUBJECT_MAP.get(fname, "未知")
 
 
+# ============================================================
+# 核心检索函数
+# ============================================================
+
 def search_knowledge(query_text, top_k=3):
-    """
-    改进版检索：向量相似度 + 词汇匹配 + 学科加权。
+    """增强版混合检索 —— 向量相似度 + 词汇匹配 + 学科加权。
+
+    检索流程：
+    1. 向量检索获取 top_k * 6 个候选
+    2. 对每个候选计算综合评分（向量 60% + 词汇 40%）× 学科系数
+    3. 按评分降序返回 top_k 个结果
+
+    Args:
+        query_text: 用户查询文本
+        top_k: 返回的文档数量
+
+    Returns:
+        (context: str, sources: List[str])
+        context 为拼接后的文档片段，sources 为来源信息列表。
     """
     collection = _get_collection()
     query_embedding = get_embedding(query_text)
     query_subjects = _classify_query(query_text)
 
+    # 初次检索获取更多候选以提升召回率
     fetch_k = max(top_k * 6, top_k)
     try:
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=fetch_k,
-            include=["documents", "metadatas", "distances"]
+            include=["documents", "metadatas", "distances"],
         )
     except TypeError:
+        # 兼容旧版 ChromaDB
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=fetch_k
+            n_results=fetch_k,
         )
 
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
     distances = results.get("distances", [[]])[0]
 
-    # 构建查询学科权重
+    # 构建学科权重（匹配最多的学科权重为 1.5，其余线性缩放）
     subject_weight = {}
     max_subj_count = query_subjects[0][1] if query_subjects else 1
     for subj, count in query_subjects:
-        subject_weight[subj] = 1.0 + (count / max_subj_count) * 0.5  # 1.0 ~ 1.5
+        subject_weight[subj] = 1.0 + (count / max_subj_count) * 0.5
 
     candidates = []
     for idx, doc in enumerate(documents):
@@ -192,10 +298,13 @@ def search_knowledge(query_text, top_k=3):
         # 学科加权
         subj_boost = subject_weight.get(doc_subject, 0.85)
 
-        # 综合评分：向量相似度 60% + 词汇匹配 40%，再乘以学科系数
-        score = (normalized_sim * 0.6 + min(lexical / max(1, len(_extract_terms(query_text))), 1.0) * 0.4) * subj_boost
+        # 综合评分（向量 60% + 词汇 40%）× 学科系数
+        score = (
+            normalized_sim * 0.6
+            + min(lexical / max(1, len(_extract_terms(query_text))), 1.0) * 0.4
+        ) * subj_boost
 
-        # 完全无词汇匹配的轻微惩罚
+        # 完全无词汇匹配时额外惩罚
         if lexical == 0:
             score *= 0.85
 
@@ -219,7 +328,16 @@ def search_knowledge(query_text, top_k=3):
 
 
 def retrieve_context(question, top_k=3):
-    """Return (context, sources) for the given question, or ("", [])."""
+    """检索与问题相关的教材上下文（供 model.py 调用）。
+
+    Args:
+        question: 用户问题
+        top_k: 返回文档数
+
+    Returns:
+        (context: str, sources: List[str])
+        数据库为空或检索失败时返回 ("", [])。
+    """
     try:
         collection = _get_collection()
         if hasattr(collection, "count") and collection.count() == 0:

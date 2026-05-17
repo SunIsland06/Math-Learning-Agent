@@ -1,11 +1,47 @@
 """
-Symbolic Computation Skill —— 基于 SymPy 进行符号计算。
+符号计算技能 —— 基于 SymPy 提供数学符号运算能力。
+
+支持的计算类型：
+- derivative/diff: 求导（可指定阶数）
+- integral/integrate: 积分（定积分/不定积分）
+- limit: 极限（可指定方向和趋近点）
+- solve: 方程求解
+- matrix: 矩阵运算（行列式/逆矩阵/特征值/秩）
+- series: 级数展开
+- simplify: 表达式化简
+- expand: 表达式展开
+- factor: 因式分解
+
+入口函数：skill_entry(payload) → str
 """
+
 import sympy as sp
 
 
 def skill_entry(payload: dict) -> str:
-    """执行符号计算任务。"""
+    """执行符号计算任务并返回格式化结果。
+
+    Args:
+        payload: {
+            "input": str (数学表达式),
+            "params": {
+                "task": str,          # 计算类型
+                "expression": str,    # 表达式
+                "variable": str,      # 变量名（默认 "x"）
+                "extra": {            # 额外参数（阶数/区间等）
+                    "order": int,
+                    "lower": number,
+                    "upper": number,
+                    "point": number,
+                    "direction": str,
+                    "op": str,
+                }
+            }
+        }
+
+    Returns:
+        包含 LaTeX 公式的 Markdown 格式结果字符串。
+    """
     payload = payload or {}
     params = payload.get("params") or {}
     input_text = payload.get("input", "")
@@ -20,30 +56,30 @@ def skill_entry(payload: dict) -> str:
 
     try:
         x = sp.Symbol(variable)
-        # 解析表达式
+        # 解析表达式：优先 SymPy sympify，失败时回退到 eval
         try:
             expr = sp.sympify(expression)
         except Exception:
-            expr = eval(expression, {"x": x, "sp": sp, "sympy": sp,
-                        "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
-                        "exp": sp.exp, "log": sp.log, "sqrt": sp.sqrt,
-                        "pi": sp.pi, "E": sp.E, "oo": sp.oo})
+            expr = eval(expression, {
+                "x": x, "sp": sp, "sympy": sp,
+                "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
+                "exp": sp.exp, "log": sp.log, "sqrt": sp.sqrt,
+                "pi": sp.pi, "E": sp.E, "oo": sp.oo,
+            })
 
-        result = None
-        result_latex = ""
-
-        if task == "derivative" or task == "diff":
+        # ---- 求导 ----
+        if task in ("derivative", "diff"):
             order = extra.get("order", 1)
             result = sp.diff(expr, x, order)
-            result_latex = sp.latex(result)
             return (
                 f"【导数计算】\n"
                 f"原函数: ${sp.latex(expr)}$\n"
-                f"{order}阶导数: ${result_latex}$\n"
+                f"{order}阶导数: ${sp.latex(result)}$\n"
                 f"简化结果: ${sp.latex(sp.simplify(result))}$"
             )
 
-        elif task == "integral" or task == "integrate":
+        # ---- 积分 ----
+        elif task in ("integral", "integrate"):
             lower = extra.get("lower")
             upper = extra.get("upper")
             if lower is not None and upper is not None:
@@ -62,13 +98,14 @@ def skill_entry(payload: dict) -> str:
                     f"原函数: ${sp.latex(result)} + C$"
                 )
 
+        # ---- 极限 ----
         elif task == "limit":
             point = extra.get("point", 0)
             direction = extra.get("direction", "")
             if direction == "+":
-                result = sp.limit(expr, x, point, dir='+')
+                result = sp.limit(expr, x, point, dir="+")
             elif direction == "-":
-                result = sp.limit(expr, x, point, dir='-')
+                result = sp.limit(expr, x, point, dir="-")
             else:
                 result = sp.limit(expr, x, point)
             return (
@@ -78,6 +115,7 @@ def skill_entry(payload: dict) -> str:
                 f"结果: ${sp.latex(result)}$"
             )
 
+        # ---- 方程求解 ----
         elif task == "solve":
             rhs = extra.get("rhs", 0)
             if rhs != 0:
@@ -91,8 +129,8 @@ def skill_entry(payload: dict) -> str:
                 f"解: ${sp.latex(result)}$"
             )
 
+        # ---- 矩阵运算 ----
         elif task == "matrix":
-            # 期望 expression 是矩阵格式，如 "[[1,2],[3,4]]"
             M = sp.Matrix(eval(expression))
             op = extra.get("op", "det")
             if op == "det":
@@ -114,6 +152,7 @@ def skill_entry(payload: dict) -> str:
                 f"结果: ${sp.latex(result)}$"
             )
 
+        # ---- 级数展开 ----
         elif task == "series":
             n = extra.get("n", 6)
             point = extra.get("point", 0)
@@ -127,7 +166,8 @@ def skill_entry(payload: dict) -> str:
                 f"展开项: ${sp.latex(result_removed)}$"
             )
 
-        elif task == "simplify" or task == "simplify":
+        # ---- 化简 ----
+        elif task in ("simplify",):
             result = sp.simplify(expr)
             return (
                 f"【表达式化简】\n"
@@ -135,6 +175,7 @@ def skill_entry(payload: dict) -> str:
                 f"化简结果: ${sp.latex(result)}$"
             )
 
+        # ---- 展开 ----
         elif task == "expand":
             result = sp.expand(expr)
             return (
@@ -143,6 +184,7 @@ def skill_entry(payload: dict) -> str:
                 f"展开结果: ${sp.latex(result)}$"
             )
 
+        # ---- 因式分解 ----
         elif task == "factor":
             result = sp.factor(expr)
             return (
@@ -151,8 +193,8 @@ def skill_entry(payload: dict) -> str:
                 f"分解结果: ${sp.latex(result)}$"
             )
 
+        # ---- 自动模式：先数值求值再符号简化 ----
         else:
-            # 自动尝试：先尝试求值，再尝试简化
             try:
                 result = sp.N(expr)
                 if result.is_number:

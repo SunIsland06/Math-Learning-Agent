@@ -12,3 +12,5 @@ thinking_strength: high
 search: false
 # 是否开启长期记忆(默认关闭)
 memory: false
+# Wolfram Alpha App ID (用于复杂数学计算，留空则不启用)
+wolfram_app_id:

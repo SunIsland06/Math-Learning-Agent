@@ -1,3 +1,15 @@
+"""
+LLM 模型封装模块 —— 负责与 DeepSeek API 交互，处理流式对话、工具调用、
+RAG 知识库注入、长期记忆注入以及请求日志记录。
+
+核心流程：
+1. stream_chat_chunks() 接收用户问题，拼接系统提示词 + 历史消息
+2. 注入长期记忆 + RAG 检索结果（如有）
+3. 构建工具清单（技能 + MCP 联网搜索），发起流式请求
+4. 若模型返回工具调用 → 执行工具 → 二次补全流式输出
+5. 所有请求/响应写入日志文件（脱敏处理）
+"""
+
 import json
 import requests
 
@@ -17,6 +29,20 @@ from memory.memory_manager import build_memory_message
 
 
 class Model:
+    """LLM 模型封装 —— 管理与 DeepSeek API 的对话会话。
+
+    Attributes:
+        api_key: API 密钥
+        base_url: API 端点 URL
+        model_name: 模型名称（如 deepseek-chat）
+        messages: 对话历史（含 system prompt）
+        skill_caller: 技能调用器实例
+        enable_thinking: 是否启用深度思考
+        enable_search: 是否启用联网搜索
+        enable_memory: 是否启用长期记忆
+        _web_refs: 网页搜索引用缓存
+    """
+
     def __init__(
         self,
         model_name=None,
@@ -26,7 +52,16 @@ class Model:
         default_stream=None,
         timeout=60,
     ):
-        # 读取全局配置并初始化模型参数
+        """初始化模型实例，优先使用传入参数，否则从全局配置读取。
+
+        Args:
+            model_name: 模型名称，默认从 config/global.yml 读取
+            system_prompt: 系统提示词，默认加载 src/prompt/system.md
+            api_key: API 密钥，默认从 config/global.yml 读取
+            base_url: API 端点 URL
+            default_stream: 是否默认流式输出
+            timeout: HTTP 请求超时秒数
+        """
         config = get_global_config()
         self.api_key = api_key or config.key
         self.base_url = base_url or config.api_url
@@ -36,7 +71,7 @@ class Model:
         )
         self.timeout = timeout
 
-        # 初始化系统提示词与对话历史
+        # 初始化系统提示词与对话历史（messages[0] 始终为 system prompt）
         self.system_prompt = system_prompt or load_system_prompt()
         self.messages = [{"role": "system", "content": self.system_prompt}]
         self.skill_caller = SkillCaller()
@@ -45,14 +80,43 @@ class Model:
         self.enable_search = False
         self.enable_memory = False
         self.memory_username = ""
-        self._web_refs: List[Dict[str, str]] = []  # 网页搜索引用
-    
-    def stream_chat_chunks(self, prompt, temperature=0.7, extra_params=None):
-        """Yield model output by content chunk."""
-        # 记录用户输入
-        self.messages.append({"role": "user", "content": prompt})
+        self._web_refs: List[Dict[str, str]] = []  # 网页搜索引用列表
 
-        # 构建前置消息：长期记忆 + RAG 知识库
+    def stream_chat_chunks(self, prompt, temperature=0.7, extra_params=None, image_data_list=None):
+        """流式对话主入口 —— 逐 chunk 输出模型回复。
+
+        处理流程：
+        1. 将用户消息追加到 messages（支持多模态图片输入）
+        2. 注入长期记忆 + RAG 知识库上下文
+        3. 构建工具清单并发起流式 API 请求
+        4. 解析 SSE 流，合并工具调用增量
+        5. 若有工具调用 → 执行 → 二次补全
+        6. 最终回答写回 messages
+
+        Args:
+            prompt: 用户输入文本
+            temperature: 采样温度（0~1）
+            extra_params: 额外 API 参数（如 thinking 配置）
+            image_data_list: [(name, data_uri), ...] 图片附件列表
+
+        Yields:
+            文本块（str），供 SSE 流式输出。
+        """
+        # 构建用户消息（支持多模态：文本 + 图片）
+        if image_data_list:
+            content_parts = [{"type": "text", "text": prompt}]
+            for name, data_uri in image_data_list:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_uri, "detail": "high"},
+                })
+            user_message = {"role": "user", "content": content_parts}
+        else:
+            user_message = {"role": "user", "content": prompt}
+
+        self.messages.append(user_message)
+
+        # 构建前置消息：长期记忆 → RAG 知识库
         pre_messages = []
         if self.enable_memory and self.memory_username:
             memory_message = build_memory_message(self.memory_username, prompt)
@@ -63,17 +127,19 @@ class Model:
         if rag_message:
             pre_messages.append(rag_message)
 
+        # 注入位置：system prompt 之后、最近一条用户消息之前
         if pre_messages:
             payload_messages = self.messages[:-1] + pre_messages + [self.messages[-1]]
         else:
             payload_messages = self.messages
 
-        # 构建工具清单（技能 + MCP，MCP 仅在开启搜索时注入）
+        # 构建工具清单（技能 + MCP 联网搜索）
         tools = self.skill_caller.build_tools()
         if self.enable_search:
             mcp_manager = get_mcp_manager()
             if mcp_manager.is_ready():
                 tools = tools + mcp_manager.build_tools()
+
         payload = {
             "model": self.model_name,
             "messages": payload_messages,
@@ -85,7 +151,7 @@ class Model:
         if extra_params:
             payload.update(extra_params)
 
-        # 请求头（隐藏实际 key 只在日志中处理）
+        # 请求头（日志中会脱敏处理 Authorization）
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -97,7 +163,7 @@ class Model:
             tool_calls: List[Dict[str, Any]] = []
             has_tool_calls = False
 
-            # 发起流式请求
+            # 发起流式 POST 请求
             res = requests.post(
                 self.base_url,
                 json=payload,
@@ -110,11 +176,13 @@ class Model:
             except requests.HTTPError:
                 self._log_http_error("chat.completions", payload, headers, res)
                 raise
+
+            # 逐行解析 SSE 流
             for line in res.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):
                     continue
 
-                data_str = line[6:]
+                data_str = line[6:]  # 去掉 "data: " 前缀
                 if data_str == "[DONE]":
                     break
 
@@ -124,24 +192,24 @@ class Model:
                 except (json.JSONDecodeError, KeyError, IndexError):
                     continue
 
-                # 解析工具调用增量
+                # 合并流式工具调用增量（跨多个 chunk 拼接）
                 if delta.get("tool_calls"):
                     has_tool_calls = True
                     merge_tool_call_delta(tool_calls, delta["tool_calls"])
                     continue
 
-                # 记录思考过程（如有）
+                # 记录推理内容（深度思考模式）
                 reasoning_piece = delta.get("reasoning_content", "")
                 if reasoning_piece:
                     full_reasoning += reasoning_piece
 
-                # 只在非工具调用阶段输出内容
+                # 输出正文内容（工具调用阶段不输出）
                 content = delta.get("content", "")
                 if content and not has_tool_calls:
                     full_answer += content
                     yield content
 
-            # 若模型调用了工具，则先执行工具再进行二次补全
+            # 工具调用分支：执行工具 → 二次流式补全
             if has_tool_calls:
                 self._log_http_exchange(
                     "chat.completions",
@@ -154,13 +222,13 @@ class Model:
                 tool_messages = self._run_tool_calls(tool_calls)
                 self.messages.extend(tool_messages)
                 yield from self._stream_followup(headers, temperature, extra_params, rag_message)
-                # 输出网页搜索引用
+                # 追加网页搜索引用
                 ref_section = self._build_reference_section()
                 if ref_section:
                     yield ref_section
                 return
 
-            # 记录最终回答到消息历史
+            # 普通回答分支：记录到消息历史
             assistant_message = {"role": "assistant", "content": full_answer}
             if full_reasoning:
                 assistant_message["reasoning_content"] = full_reasoning
@@ -175,51 +243,85 @@ class Model:
         except Exception as e:
             yield f"Model request error: {str(e)}"
 
+    # ============================================================
+    # 工具调用处理
+    # ============================================================
+
     def _append_tool_calls(self, tool_calls: List[Dict[str, Any]], reasoning_content: str = "") -> None:
-        # 将工具调用写入对话历史
+        """将模型的工具调用请求写入对话历史。
+
+        Args:
+            tool_calls: 合并后的完整工具调用列表
+            reasoning_content: 模型推理内容（如有）
+        """
         message: Dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         self.messages.append(message)
 
     def _run_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        # 逐个执行工具调用，MCP 工具路由到 MCP 管理器，并提取引用
+        """逐个执行工具调用并返回 tool 角色消息列表。
+
+        MCP 工具（如 web_search）路由到 MCP 管理器执行；
+        技能工具路由到 SkillCaller 执行。
+        网页搜索结果中的 URL 自动提取到 _web_refs。
+
+        Args:
+            tool_calls: 待执行的工具调用列表
+
+        Returns:
+            tool 角色消息列表，可直接追加到 messages。
+        """
         tool_messages: List[Dict[str, Any]] = []
         mcp_manager = get_mcp_manager()
         for call in tool_calls:
             function = call.get("function", {})
             name = function.get("name", "")
             arguments = function.get("arguments", "")
-            # 判断是否为 MCP 工具
+
+            # 判断是否为 MCP 工具（当前仅 web_search）
             if mcp_manager.is_ready() and any(
                 t["function"]["name"] == name for t in mcp_manager.build_tools()
             ):
                 result = mcp_manager.execute_tool(name, arguments)
-                # 提取网页搜索引用（用于回答底部展示）
                 if name == "web_search":
                     self._extract_web_refs(result)
             else:
                 result = self.skill_caller.execute_tool_call(name, arguments)
+
             tool_messages.append(self.skill_caller.build_tool_message(call.get("id", ""), name, result))
 
         return tool_messages
 
     def _extract_web_refs(self, result: str) -> None:
-        """从 web_search 结果中提取 URL 引用。"""
+        """从 web_search 工具结果中提取 URL 引用。
+
+        匹配格式：序号. 标题\\n   URL: http...
+
+        Args:
+            result: web_search 返回的文本结果
+        """
         import re
         self._web_refs = []
-        # 匹配 "N. title\n   URL: http..." 格式
         pattern = re.compile(r"^\d+\.\s+(.+?)\n\s+URL:\s+(https?://\S+)", re.MULTILINE)
+        seen_urls = set()
         for match in pattern.finditer(result):
             title = match.group(1).strip()
             url = match.group(2).strip()
-            if url not in {r["url"] for r in self._web_refs}:
+            if url not in seen_urls:
+                seen_urls.add(url)
                 self._web_refs.append({"title": title[:100], "url": url})
 
     def _build_reference_section(self) -> str:
-        """构建 DeepSeek 风格的参考来源区域（Markdown 格式）。"""
+        """构建 Markdown 格式的参考来源区域。
+
+        Returns:
+            格式化的参考来源 Markdown 文本，无引用时返回空字符串。
+        """
         if not self._web_refs:
             return ""
+        from urllib.parse import urlparse
+
         lines = [
             "",
             "---",
@@ -228,8 +330,6 @@ class Model:
             "",
         ]
         for i, ref in enumerate(self._web_refs, 1):
-            # 截取域名作为简短显示
-            from urllib.parse import urlparse
             try:
                 domain = urlparse(ref["url"]).netloc
             except Exception:
@@ -238,13 +338,29 @@ class Model:
         lines.append("")
         return "\n".join(lines)
 
+    # ============================================================
+    # 二次补全（工具调用后）
+    # ============================================================
+
     def _stream_followup(self, headers, temperature, extra_params, rag_message=None):
-        # 工具调用完成后的二次流式请求
+        """工具调用完成后的二次流式请求 —— 将工具结果反馈给模型生成最终回答。
+
+        Args:
+            headers: HTTP 请求头
+            temperature: 采样温度
+            extra_params: 额外 API 参数
+            rag_message: RAG 上下文消息（需要注入时传入）
+
+        Yields:
+            文本块（str）。
+        """
         payload_messages = self.messages
 
+        # 如有 RAG 上下文则注入到最新消息之前
         if rag_message:
             payload_messages = self.messages[:-1] + [rag_message, self.messages[-1]]
 
+        # 二次补全仍携带工具清单（支持连续工具调用）
         followup_tools = self.skill_caller.build_tools()
         if self.enable_search:
             mcp_manager = get_mcp_manager()
@@ -274,6 +390,7 @@ class Model:
         except requests.HTTPError:
             self._log_http_error("chat.completions.followup", payload, headers, res)
             raise
+
         full_answer = ""
         full_reasoning = ""
         for line in res.iter_lines(decode_unicode=True):
@@ -299,6 +416,7 @@ class Model:
                 full_answer += content
                 yield content
 
+        # 记录二次补全结果
         assistant_message = {"role": "assistant", "content": full_answer}
         if full_reasoning:
             assistant_message["reasoning_content"] = full_reasoning
@@ -311,15 +429,32 @@ class Model:
             response_content=full_answer,
         )
 
+    # ============================================================
+    # 兼容接口
+    # ============================================================
+
     def stream_chat(self, prompt, temperature=0.7, extra_params=None):
-        """Backward compatible char-level stream."""
-        # 兼容旧的逐字符输出逻辑
+        """逐字符流式输出（向后兼容旧接口）。
+
+        对每个 chunk 再做逐字符拆分，供需要逐字符渲染的调用方使用。
+        """
         for chunk in self.stream_chat_chunks(prompt, temperature=temperature, extra_params=extra_params):
             for char in chunk:
                 yield char
 
+    # ============================================================
+    # RAG 知识库注入
+    # ============================================================
+
     def _build_rag_message(self, question: str) -> Dict[str, Any] | None:
-        # 从向量库检索上下文并拼成系统消息（含学科分类）
+        """从 ChromaDB 向量库检索相关教材片段并构建 system 消息。
+
+        Args:
+            question: 用户问题文本
+
+        Returns:
+            包含检索结果的 system 角色消息字典，无结果时返回 None。
+        """
         context, sources = retrieve_context(question, top_k=3)
         if not context:
             return None
@@ -332,12 +467,20 @@ class Model:
         )
         return {"role": "system", "content": content}
 
+    # ============================================================
+    # 会话控制
+    # ============================================================
+
     def reset(self):
-        # 重置对话，仅保留系统提示词
+        """重置对话 —— 清空历史消息，仅保留系统提示词（messages[0]）。"""
         self.messages = [self.messages[0]]
 
+    # ============================================================
+    # 日志记录（脱敏处理）
+    # ============================================================
+
     def _log_http_error(self, tag: str, payload: Dict[str, Any], headers: Dict[str, str], response) -> None:
-        # 记录错误请求
+        """记录 HTTP 错误请求/响应到日志文件。"""
         self._write_log(tag, payload, headers, response)
 
     def _log_http_exchange(
@@ -348,7 +491,15 @@ class Model:
         response,
         response_content: str | None = None,
     ) -> None:
-        # 记录请求与响应（成功或失败）
+        """记录完整的请求/响应交换到日志文件（成功或失败）。
+
+        Args:
+            tag: 日志标签（如 "chat.completions"）
+            payload: 请求体
+            headers: 请求头
+            response: HTTP 响应对象
+            response_content: 响应正文（流式场景下需显式传入）
+        """
         self._write_log(tag, payload, headers, response, response_content=response_content)
 
     def _write_log(
@@ -359,11 +510,15 @@ class Model:
         response,
         response_content: str | None = None,
     ) -> None:
-        # 日志写入到 logs 目录，避免泄漏真实 key
+        """将 API 调用记录以 JSON 行格式写入 logs/deepseek-YYYYMMDD.log。
+
+        API 密钥在写入前脱敏为 "Bearer ***"。
+        """
         log_dir = Path(__file__).resolve().parents[2] / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"deepseek-{datetime.utcnow().strftime('%Y%m%d')}.log"
 
+        # 脱敏：隐藏真实 API Key
         safe_headers = dict(headers)
         if "Authorization" in safe_headers:
             safe_headers["Authorization"] = "Bearer ***"
@@ -390,8 +545,12 @@ class Model:
             f.write("\n")
 
 
-def load_system_prompt():
-    # 读取系统提示词模板
+# ============================================================
+# 模块级工具函数
+# ============================================================
+
+def load_system_prompt() -> str:
+    """从 src/prompt/system.md 读取系统提示词模板。"""
     prompt_path = Path(__file__).parent.parent / "prompt" / "system.md"
     return prompt_path.read_text(encoding="utf-8").strip()
 
