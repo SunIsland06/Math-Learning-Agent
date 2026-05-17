@@ -101,7 +101,7 @@
 
 ### 1. 克隆项目
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/SunIsland06/Math-Learning-Agent.git
 cd Math-Learning-Agent
 ```
 
