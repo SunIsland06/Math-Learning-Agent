@@ -6,6 +6,18 @@ Flask Web 应用主模块 —— 数学学习助手的 Web 入口。
 通过 MySQL 持久化用户、会话和消息数据。
 """
 
+import sys
+import os
+
+# ---- 强制 UTF-8 编码（解决 Windows PowerShell 下中文乱码） ----
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 from datetime import datetime, timezone
 import hashlib
 import re

@@ -1,6 +1,6 @@
 ---
-name：math-guided-teaching
-description：当学生提出需要逐步推导的工科数学分析问题时，使用此技能进行启发式教学，引导学生自主完成推导。
+name: math-guided-teaching
+description: 当学生提出需要逐步推导的工科数学分析问题时，使用此技能进行启发式教学，引导学生自主完成推导。
 ---
 
 # 触发条件：主提示词判定为“推导型”问题时调用。

@@ -8,8 +8,15 @@
 """
 
 import json
-import requests
 import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from utils.encoding_setup import setup_windows_utf8
+setup_windows_utf8()
+
+import requests
 
 # Ollama 本地嵌入服务配置
 OLLAMA_API = "http://127.0.0.1:11434/api/embeddings"

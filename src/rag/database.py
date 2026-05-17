@@ -11,9 +11,16 @@ ChromaDB 数据库入库模块 —— 将向量化后的教材块批量写入 Ch
 """
 
 import json
-import chromadb
-import uuid
 import os
+import sys
+import uuid
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from utils.encoding_setup import setup_windows_utf8
+setup_windows_utf8()
+
+import chromadb
 import requests
 
 # ============================================================

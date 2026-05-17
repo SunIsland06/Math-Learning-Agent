@@ -14,12 +14,13 @@
 
 import os
 import sys
-import io
 import json
 import re
+from pathlib import Path
 
-# 修复 Windows 控制台 GBK 编码导致的打印乱码
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from utils.encoding_setup import setup_windows_utf8
+setup_windows_utf8()
 
 HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 IMAGE_RE = re.compile(r"^!\[.*?\]\(.*?\)\s*$")
@@ -261,7 +262,7 @@ def process_all_md_files():
                     "start_line": chunk["start_line"],
                     "content": chunk["content"],
                 })
-                preview = chunk["content"][:180].encode("gbk", "ignore").decode("gbk").strip()
+                preview = chunk["content"][:180].strip().replace("\n", " ")
                 print(f"[{filename}] 块 {i + 1}：{preview}...")
 
             all_chunks.extend(enriched_chunks)
