@@ -26,6 +26,15 @@ from skill.skillCall import SkillCaller, merge_tool_call_delta
 from rag.integration import retrieve_context
 from mcp_services.mcp_manager import get_mcp_manager
 from memory.memory_manager import build_memory_message
+from utils.debug_logger import (
+    is_debug_enabled, debug_log, log_prompt, log_response,
+    log_skill_call, log_rag_retrieve, log_memory_read, log_mcp_call
+)
+
+# ---- 性能优化常量 ----
+MAX_TOOL_RESULT_LEN = 4000       # 工具结果最大字符数（超出截断）
+MAX_HISTORY_MESSAGES = 20        # 最大历史消息数（超出丢弃最早的）
+MAX_TOOL_ARGS_IN_FOLLOWUP = 2000 # followup 中工具参数最大长度
 
 
 class Model:
@@ -116,12 +125,19 @@ class Model:
 
         self.messages.append(user_message)
 
+        # ---- 历史消息长度限制 ----
+        if len(self.messages) > MAX_HISTORY_MESSAGES + 1:
+            # 保留 system prompt + 最近的消息
+            self.messages = [self.messages[0]] + self.messages[-(MAX_HISTORY_MESSAGES):]
+
         # 构建前置消息：长期记忆 → RAG 知识库
         pre_messages = []
         if self.enable_memory and self.memory_username:
             memory_message = build_memory_message(self.memory_username, prompt)
             if memory_message:
                 pre_messages.append(memory_message)
+                log_memory_read(self.memory_username, prompt,
+                                memory_message["content"].count("记忆"))
 
         rag_message = self._build_rag_message(prompt)
         if rag_message:
@@ -150,6 +166,12 @@ class Model:
         }
         if extra_params:
             payload.update(extra_params)
+
+        # DEBUG: 记录发送给 LLM 的提示词
+        log_prompt("initial", payload_messages, {
+            "temperature": temperature, "tools_count": len(tools),
+            "enable_search": self.enable_search, "enable_memory": self.enable_memory,
+        })
 
         # 请求头（日志中会脱敏处理 Authorization）
         headers = {
@@ -198,14 +220,19 @@ class Model:
                     merge_tool_call_delta(tool_calls, delta["tool_calls"])
                     continue
 
-                # 记录推理内容（深度思考模式）
+                # 记录推理内容（深度思考模式），用标记包裹供前端折叠
                 reasoning_piece = delta.get("reasoning_content", "")
                 if reasoning_piece:
+                    if not full_reasoning:
+                        yield "<<<THINKING>>>"
                     full_reasoning += reasoning_piece
+                    yield reasoning_piece
 
                 # 输出正文内容（工具调用阶段不输出）
                 content = delta.get("content", "")
                 if content and not has_tool_calls:
+                    if full_reasoning and not full_answer:
+                        yield "<<<THINKING_END>>>"
                     full_answer += content
                     yield content
 
@@ -284,10 +311,16 @@ class Model:
                 t["function"]["name"] == name for t in mcp_manager.build_tools()
             ):
                 result = mcp_manager.execute_tool(name, arguments)
+                log_mcp_call(name, arguments, len(result))
                 if name == "web_search":
                     self._extract_web_refs(result)
             else:
                 result = self.skill_caller.execute_tool_call(name, arguments)
+                log_skill_call(name, arguments, result)
+
+            # 截断过长的工具结果以节省 token
+            if len(result) > MAX_TOOL_RESULT_LEN:
+                result = result[:MAX_TOOL_RESULT_LEN] + "\n...[结果过长已截断]"
 
             tool_messages.append(self.skill_caller.build_tool_message(call.get("id", ""), name, result))
 
@@ -357,7 +390,7 @@ class Model:
         # 注意：rag_message 已在首次 stream_chat_chunks 请求中注入到 pre_messages，
         # 此处不应再插入，否则会破坏 assistant(tool_calls)→tool 消息的连续性，
         # 导致 API 400 错误："insufficient tool messages following tool_calls message"
-        payload_messages = self.messages
+        payload_messages = _trim_tool_args(self.messages)
 
         # 二次补全仍携带工具清单（支持连续工具调用）
         followup_tools = self.skill_caller.build_tools()
@@ -409,9 +442,14 @@ class Model:
 
             reasoning_piece = delta.get("reasoning_content", "")
             if reasoning_piece:
+                if not full_reasoning:
+                    yield "<<<THINKING>>>"
                 full_reasoning += reasoning_piece
+                yield reasoning_piece
 
             if content:
+                if full_reasoning and not full_answer:
+                    yield "<<<THINKING_END>>>"
                 full_answer += content
                 yield content
 
@@ -454,7 +492,8 @@ class Model:
         Returns:
             包含检索结果的 system 角色消息字典，无结果时返回 None。
         """
-        context, sources = retrieve_context(question, top_k=3)
+        context, sources = retrieve_context(question, top_k=2)
+        log_rag_retrieve(question, sources, len(context))
         if not context:
             return None
         sources_text = "；".join(sources) if sources else "unknown"
@@ -547,6 +586,32 @@ class Model:
 # ============================================================
 # 模块级工具函数
 # ============================================================
+
+def _trim_tool_args(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """截断消息中过长的工具调用参数以节省 token。
+
+    在 followup 请求中，文档生成等技能的参数可能包含完整 Markdown 内容，
+    这些内容不需要在 followup 中重复发送（模型已知），截断可大幅减少 token。
+
+    Args:
+        messages: 消息列表
+
+    Returns:
+        处理后的消息列表（浅拷贝）。
+    """
+    result = list(messages)
+    for msg in result:
+        tool_calls = msg.get("tool_calls", [])
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            args = func.get("arguments", "")
+            if isinstance(args, str) and len(args) > MAX_TOOL_ARGS_IN_FOLLOWUP:
+                func["arguments"] = (
+                    args[:MAX_TOOL_ARGS_IN_FOLLOWUP]
+                    + f'... [args truncated, {len(args)} chars total]'
+                )
+    return result
+
 
 def load_system_prompt() -> str:
     """从 src/prompt/system.md 读取系统提示词模板。"""

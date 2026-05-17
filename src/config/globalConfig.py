@@ -52,6 +52,7 @@ class GlobalConfig:
         self.model = self._get_str(data, "model")
         self.search = bool(data.get("search", False))
         self.memory = bool(data.get("memory", False))
+        self.debug = bool(data.get("debug", False))
         self.wolfram_app_id = self._get_str(data, "wolfram_app_id")
 
     def _resolve_config_path(self):

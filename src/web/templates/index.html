@@ -541,6 +541,52 @@
         .message-body .katex-display { margin: 10px 0; }
         .message-body .katex { font-size: 1.05em; }
 
+        /* ===== 思考过程折叠块 ===== */
+        .thinking-block {
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--panel-alt);
+            overflow: hidden;
+            font-size: 0.88em;
+        }
+        .thinking-block summary {
+            padding: 8px 14px;
+            cursor: pointer;
+            color: var(--muted);
+            font-weight: 500;
+            font-size: 0.85em;
+            letter-spacing: 0.3px;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid transparent;
+            transition: color 0.2s ease, border-color 0.2s ease;
+        }
+        .thinking-block summary:hover {
+            color: var(--text-2);
+        }
+        .thinking-block[open] summary {
+            border-bottom-color: var(--border);
+            color: var(--accent);
+        }
+        .thinking-block summary::before {
+            content: '💭';
+            font-size: 0.9em;
+        }
+        .thinking-block summary::marker { display: none; }
+        .thinking-content {
+            padding: 10px 14px;
+            color: var(--muted);
+            white-space: pre-wrap;
+            line-height: 1.6;
+            max-height: 360px;
+            overflow-y: auto;
+            font-family: var(--font-sans);
+        }
+
         .message-body .mermaid {
             margin: 10px 0;
             padding: 14px;
@@ -1131,8 +1177,25 @@
             const body = div.querySelector(".message-body");
             if (!body) return;
             const safeContent = sanitizeContent(content || "");
-            const imageUrls = extractImageUrls(safeContent);
-            let renderText = safeContent;
+
+            // ---- 提取思考过程 ----
+            let thinkingHtml = "";
+            let displayText = safeContent;
+            const thinkRegex = /<<<THINKING>>>([\s\S]*?)<<<THINKING_END>>>/g;
+            const thinkMatches = [...safeContent.matchAll(thinkRegex)];
+            if (thinkMatches.length > 0) {
+                thinkMatches.forEach(function(m) {
+                    const thinkContent = m[1].trim();
+                    if (thinkContent) {
+                        thinkingHtml += '<details class="thinking-block" open><summary>思考过程</summary>'
+                            + '<div class="thinking-content">' + escapeHtml(thinkContent) + '</div></details>';
+                    }
+                });
+                displayText = safeContent.replace(thinkRegex, "");
+            }
+
+            const imageUrls = extractImageUrls(displayText);
+            let renderText = displayText;
             if (imageUrls.length) {
                 imageUrls.forEach((url) => {
                     if (!renderText.includes(`![](${url})`)) {
@@ -1147,7 +1210,7 @@
                 var protectedText = protectMathBlocks(renderText);
                 var html = renderMarkdownToHtml(protectedText);
                 html = restoreMathBlocks(html);
-                body.innerHTML = html;
+                body.innerHTML = thinkingHtml + html;
                 renderMath(body);
                 if (mermaidReady) {
                     var mermaidEls = body.querySelectorAll(".mermaid:not([data-processed])");
@@ -1157,7 +1220,8 @@
                 }
             } else {
                 body.classList.add("plain");
-                body.textContent = renderText || "";
+                body.innerHTML = thinkingHtml;
+                body.appendChild(document.createTextNode(renderText || ""));
                 renderMath(body);
             }
         }
