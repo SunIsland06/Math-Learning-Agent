@@ -479,22 +479,24 @@
         }
         .ai:hover .msg-actions { opacity: 1; }
 
-        /* ===== 消息操作按钮组 ===== */
+        /* ===== 消息操作按钮组（回答底部 + 横线分隔） ===== */
         .msg-actions {
             display: flex;
             gap: 2px;
-            margin-top: 8px;
+            margin-top: 0;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
             opacity: 0;
             transition: opacity 0.2s ease;
         }
         .msg-act-btn {
-            width: 28px; height: 28px;
+            width: 30px; height: 30px;
             border: none;
             border-radius: 6px;
             background: transparent;
             color: var(--muted);
             cursor: pointer;
-            font-size: 13px;
+            font-size: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -504,6 +506,15 @@
         .msg-act-btn.liked { color: var(--accent); }
         .msg-act-btn.disliked { color: #ef4444; }
         .msg-act-btn.copied { color: var(--success); }
+
+        /* 横线分隔文字 */
+        .msg-actions-divider {
+            color: var(--muted);
+            font-size: 0.7em;
+            align-self: center;
+            margin: 0 8px;
+            user-select: none;
+        }
 
         /* ===== 加载动画（右下角） ===== */
         .loading-indicator {
@@ -1340,15 +1351,16 @@
             };
             wrap.appendChild(mdBtn);
 
-            // 分隔
+            // 分隔文字
             const sep = document.createElement("span");
-            sep.style.cssText = "width:1px;background:var(--border);margin:4px 4px;align-self:stretch;";
+            sep.className = "msg-actions-divider";
+            sep.textContent = "|";
             wrap.appendChild(sep);
 
             // 点赞
             const likeBtn = document.createElement("button");
             likeBtn.className = "msg-act-btn";
-            likeBtn.title = "喜欢";
+            likeBtn.title = "喜欢这个回答";
             likeBtn.textContent = "👍";
             likeBtn.onclick = function() {
                 likeBtn.classList.toggle("liked");
@@ -1359,7 +1371,7 @@
             // 点踩
             const dislikeBtn = document.createElement("button");
             dislikeBtn.className = "msg-act-btn";
-            dislikeBtn.title = "不喜欢";
+            dislikeBtn.title = "不喜欢这个回答";
             dislikeBtn.textContent = "👎";
             dislikeBtn.onclick = function() {
                 dislikeBtn.classList.toggle("disliked");
