@@ -349,16 +349,15 @@ class Model:
             headers: HTTP 请求头
             temperature: 采样温度
             extra_params: 额外 API 参数
-            rag_message: RAG 上下文消息（需要注入时传入）
+            rag_message: 已弃用（RAG 上下文已在首次请求中注入，此处保留仅为兼容）
 
         Yields:
             文本块（str）。
         """
+        # 注意：rag_message 已在首次 stream_chat_chunks 请求中注入到 pre_messages，
+        # 此处不应再插入，否则会破坏 assistant(tool_calls)→tool 消息的连续性，
+        # 导致 API 400 错误："insufficient tool messages following tool_calls message"
         payload_messages = self.messages
-
-        # 如有 RAG 上下文则注入到最新消息之前
-        if rag_message:
-            payload_messages = self.messages[:-1] + [rag_message, self.messages[-1]]
 
         # 二次补全仍携带工具清单（支持连续工具调用）
         followup_tools = self.skill_caller.build_tools()
