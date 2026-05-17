@@ -518,9 +518,11 @@
 
         /* ===== 加载动画（右下角） ===== */
         .loading-indicator {
-            position: fixed;
-            bottom: 100px;
-            left: 24px;
+            position: fixed !important;
+            bottom: 100px !important;
+            left: 24px !important;
+            top: auto !important;
+            right: auto !important;
             display: none;
             align-items: center;
             gap: 8px;
@@ -531,7 +533,7 @@
             box-shadow: var(--shadow);
             font-size: 0.82em;
             color: var(--muted);
-            z-index: 100;
+            z-index: 9999;
             animation: fadeUp 0.3s ease;
         }
         .loading-indicator.show { display: flex; }
