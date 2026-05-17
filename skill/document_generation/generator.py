@@ -134,6 +134,11 @@ def _register_cjk_font(pdf) -> str:
                 pdf.add_font("CJK", "B", fp, uni=True)
             except Exception:
                 pass
+            try:
+                # CJK 字体通常没有真正斜体，用常规字体替代 I 样式
+                pdf.add_font("CJK", "I", fp, uni=True)
+            except Exception:
+                pass
             return "CJK"
         except Exception:
             continue
@@ -236,7 +241,7 @@ def _generate_pdf(content: str, title: str, author: str,
 
 def _pdf_header(pdf, font_name, header_text):
     """PDF 页眉（居中文字）。"""
-    pdf.set_font(font_name, "I", 8)
+    pdf.set_font(font_name, "", 8)
     pdf.cell(0, 8, header_text, align="C")
     pdf.ln(10)
 
@@ -244,7 +249,7 @@ def _pdf_header(pdf, font_name, header_text):
 def _pdf_footer(pdf, font_name, footer_text):
     """PDF 页脚（居中文字 + 页码）。"""
     pdf.set_y(-15)
-    pdf.set_font(font_name, "I", 8)
+    pdf.set_font(font_name, "", 8)
     pdf.cell(0, 10, f"{footer_text}  |  第 {pdf.page_no()} 页", align="C")
 
 
@@ -476,7 +481,7 @@ def _render_paragraph(pdf, font_name, line, effective_width):
 
 def _pdf_section_heading(pdf, font_name: str, heading: str, level: int):
     """渲染 PDF 章节标题。"""
-    sizes = {1: ("B", 16), 2: ("B", 14), 3: ("B", 12), 4: ("I", 11)}
+    sizes = {1: ("B", 16), 2: ("B", 14), 3: ("B", 12), 4: ("", 11)}
     style, size = sizes.get(level, ("", 11))
     pdf.ln(4)
     pdf.set_font(font_name, style, size)

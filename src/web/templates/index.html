@@ -477,6 +477,61 @@
             margin-left: 0;
             border: 1px solid var(--border);
         }
+        .ai:hover .msg-actions { opacity: 1; }
+
+        /* ===== 消息操作按钮组 ===== */
+        .msg-actions {
+            display: flex;
+            gap: 2px;
+            margin-top: 8px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .msg-act-btn {
+            width: 28px; height: 28px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+        .msg-act-btn:hover { background: var(--hover); color: var(--text-1); }
+        .msg-act-btn.liked { color: var(--accent); }
+        .msg-act-btn.disliked { color: #ef4444; }
+        .msg-act-btn.copied { color: var(--success); }
+
+        /* ===== 加载动画（右下角） ===== */
+        .loading-indicator {
+            position: fixed;
+            bottom: 100px;
+            right: 24px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            font-size: 0.82em;
+            color: var(--muted);
+            z-index: 100;
+            animation: fadeUp 0.3s ease;
+        }
+        .loading-indicator.show { display: flex; }
+        .loading-spinner {
+            width: 16px; height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         .message-body {
             width: 100%;
@@ -1167,6 +1222,11 @@
             sendBtn.disabled = value;
             questionInput.disabled = value;
             attachBtn.disabled = value;
+            var loader = document.getElementById("loading-indicator");
+            if (loader) {
+                if (value) { loader.classList.add("show"); }
+                else { loader.classList.remove("show"); }
+            }
         }
 
         function setMessageContent(div, role, content) {
@@ -1236,9 +1296,86 @@
             if (role === "user" && messageAttachments && messageAttachments.length) {
                 renderAttachmentPreview(body, messageAttachments);
             }
+            // AI 消息添加操作按钮组
+            if (role === "assistant" || role === "ai") {
+                const actions = _buildActionButtons(div, content || "");
+                div.appendChild(actions);
+            }
             box.appendChild(div);
             box.scrollTop = box.scrollHeight;
             return div;
+        }
+
+        function _buildActionButtons(msgDiv, rawContent) {
+            const wrap = document.createElement("div");
+            wrap.className = "msg-actions";
+
+            // 复制回答
+            const copyBtn = document.createElement("button");
+            copyBtn.className = "msg-act-btn";
+            copyBtn.title = "复制回答";
+            copyBtn.textContent = "📋";
+            copyBtn.onclick = function() {
+                const body = msgDiv.querySelector(".message-body");
+                const text = body ? (body.textContent || "").trim() : "";
+                navigator.clipboard.writeText(text).then(function() {
+                    copyBtn.classList.add("copied");
+                    copyBtn.textContent = "✓";
+                    setTimeout(function() { copyBtn.classList.remove("copied"); copyBtn.textContent = "📋"; }, 2000);
+                });
+            };
+            wrap.appendChild(copyBtn);
+
+            // 复制 Markdown
+            const mdBtn = document.createElement("button");
+            mdBtn.className = "msg-act-btn";
+            mdBtn.title = "复制 Markdown";
+            mdBtn.textContent = "📝";
+            mdBtn.onclick = function() {
+                navigator.clipboard.writeText(rawContent).then(function() {
+                    mdBtn.classList.add("copied");
+                    mdBtn.textContent = "✓";
+                    setTimeout(function() { mdBtn.classList.remove("copied"); mdBtn.textContent = "📝"; }, 2000);
+                });
+            };
+            wrap.appendChild(mdBtn);
+
+            // 分隔
+            const sep = document.createElement("span");
+            sep.style.cssText = "width:1px;background:var(--border);margin:4px 4px;align-self:stretch;";
+            wrap.appendChild(sep);
+
+            // 点赞
+            const likeBtn = document.createElement("button");
+            likeBtn.className = "msg-act-btn";
+            likeBtn.title = "喜欢";
+            likeBtn.textContent = "👍";
+            likeBtn.onclick = function() {
+                likeBtn.classList.toggle("liked");
+                dislikeBtn.classList.remove("disliked");
+            };
+            wrap.appendChild(likeBtn);
+
+            // 点踩
+            const dislikeBtn = document.createElement("button");
+            dislikeBtn.className = "msg-act-btn";
+            dislikeBtn.title = "不喜欢";
+            dislikeBtn.textContent = "👎";
+            dislikeBtn.onclick = function() {
+                dislikeBtn.classList.toggle("disliked");
+                likeBtn.classList.remove("liked");
+            };
+            wrap.appendChild(dislikeBtn);
+
+            return wrap;
+        }
+
+        function _refreshActionButtons(msgDiv, rawContent) {
+            // 移除旧按钮组，重建新的
+            const old = msgDiv.querySelector(".msg-actions");
+            if (old) { old.remove(); }
+            const actions = _buildActionButtons(msgDiv, rawContent);
+            msgDiv.appendChild(actions);
         }
 
         function renderMessages(messages) {
@@ -1460,6 +1597,8 @@
                     }
                     answer += decoder.decode();
                     setMessageContent(aiDiv, "assistant", answer);
+                    // 刷新操作按钮（内容已更新）
+                    _refreshActionButtons(aiDiv, answer);
                 }
                 await refreshSessions(currentSessionId);
             } catch(e) {
@@ -1469,5 +1608,9 @@
             }
         }
     </script>
+    <div class="loading-indicator" id="loading-indicator">
+        <div class="loading-spinner"></div>
+        <span>MLA 思考中...</span>
+    </div>
 </body>
 </html>
