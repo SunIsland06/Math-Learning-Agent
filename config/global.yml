@@ -1,7 +1,7 @@
 # 模型api接口
 APIUrl: https://api.deepseek.com/chat/completions
 # API Key
-key: sk-5eaa2218bdca41779882b8f237ee01cd
+key: 
 # 选择的模型
 model: deepseek-v4-pro
 # 是否开启思考过程
@@ -15,4 +15,4 @@ memory: false
 # Wolfram Alpha App ID (用于复杂数学计算，留空则不启用)
 wolfram_app_id:
 # 是否开启调试日志(默认关闭，开启后记录详细的程序执行信息到 logs/debug/)
-debug: false
+debug: true

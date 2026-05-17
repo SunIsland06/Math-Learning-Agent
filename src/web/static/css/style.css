@@ -466,20 +466,20 @@
             margin-left: 0;
             border: 1px solid var(--border);
         }
-        .ai:hover .msg-actions { opacity: 1; }
-
-        /* ===== 消息操作按钮组（回答左下角 + 横线分隔） ===== */
+        /* ===== 消息操作按钮组（独立块, 左下角, 无边框, 半透明） ===== */
         .msg-actions {
             display: flex;
             gap: 2px;
-            margin-top: 0;
-            padding-top: 10px;
-            padding-left: 2px;
-            border-top: 1px solid var(--border);
-            opacity: 0;
+            padding: 4px 18px 6px;
+            opacity: 0.4;
             transition: opacity 0.2s ease;
             justify-content: flex-start;
+            width: 66%;
+            max-width: 800px;
+            min-width: 280px;
+            align-self: flex-start;
         }
+        .msg-actions:hover { opacity: 0.85; }
 
         .msg-act-btn {
             width: 30px; height: 30px;

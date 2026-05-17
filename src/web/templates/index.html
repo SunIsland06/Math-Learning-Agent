@@ -491,12 +491,12 @@
             if (role === "user" && messageAttachments && messageAttachments.length) {
                 renderAttachmentPreview(body, messageAttachments);
             }
-            // AI 消息添加操作按钮组
+            box.appendChild(div);
+            // AI 消息: 在消息外部追加操作按钮组（独立块）
             if (role === "assistant" || role === "ai") {
                 const actions = _buildActionButtons(div, content || "");
-                div.appendChild(actions);
+                box.appendChild(actions);
             }
-            box.appendChild(div);
             box.scrollTop = box.scrollHeight;
             return div;
         }
@@ -573,11 +573,17 @@
         }
 
         function _refreshActionButtons(msgDiv, rawContent) {
-            // 移除旧按钮组，重建新的
-            const old = msgDiv.querySelector(".msg-actions");
-            if (old) { old.remove(); }
+            // 移除消息外部的旧按钮组，重建新的
+            let next = msgDiv.nextElementSibling;
+            while (next) {
+                if (next.classList.contains("msg-actions")) {
+                    next.remove();
+                    break;
+                }
+                next = next.nextElementSibling;
+            }
             const actions = _buildActionButtons(msgDiv, rawContent);
-            msgDiv.appendChild(actions);
+            msgDiv.parentNode.insertBefore(actions, msgDiv.nextSibling);
         }
 
         function renderMessages(messages) {

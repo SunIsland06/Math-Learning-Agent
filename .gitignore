@@ -36,6 +36,7 @@ src/rag/vectorized_chunks.json
 src/rag/chunks_result.json
 src/rag/chunks_preview.txt
 src/rag/db/**
+.sqlite3
 
 # ==============================
 # 用户数据（附件、记忆、个人配置）
