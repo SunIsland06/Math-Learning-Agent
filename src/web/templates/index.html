@@ -520,7 +520,7 @@
         .loading-indicator {
             position: fixed;
             bottom: 100px;
-            right: 24px;
+            left: 24px;
             display: none;
             align-items: center;
             gap: 8px;
@@ -1328,7 +1328,12 @@
             copyBtn.textContent = "📋";
             copyBtn.onclick = function() {
                 const body = msgDiv.querySelector(".message-body");
-                const text = body ? (body.textContent || "").trim() : "";
+                let text = "";
+                if (body) {
+                    const clone = body.cloneNode(true);
+                    clone.querySelectorAll(".thinking-block").forEach(function(el) { el.remove(); });
+                    text = (clone.textContent || "").trim();
+                }
                 navigator.clipboard.writeText(text).then(function() {
                     copyBtn.classList.add("copied");
                     copyBtn.textContent = "✓";
@@ -1343,7 +1348,8 @@
             mdBtn.title = "复制 Markdown";
             mdBtn.textContent = "📝";
             mdBtn.onclick = function() {
-                navigator.clipboard.writeText(rawContent).then(function() {
+                const cleanMd = rawContent.replace(/<<<THINKING>>>[\s\S]*?<<<THINKING_END>>>\n?/g, "").trim();
+                navigator.clipboard.writeText(cleanMd).then(function() {
                     mdBtn.classList.add("copied");
                     mdBtn.textContent = "✓";
                     setTimeout(function() { mdBtn.classList.remove("copied"); mdBtn.textContent = "📝"; }, 2000);
